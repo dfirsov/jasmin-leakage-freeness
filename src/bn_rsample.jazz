@@ -1,0 +1,203 @@
+require "constants.jazz"
+require "params.jinc"
+
+
+/* comparison * */
+inline fn bn_lt_cf(reg ptr u64[nlimbs] a b) -> reg bool {
+  inline int i;
+  reg bool cf;
+  reg u64 t;
+  t = a[0];
+  cf, t -= b[0];
+  for i=1 to nlimbs {
+   t = a[i];
+   cf, t -= b[i] - cf;
+  }
+  return cf;
+}
+
+
+/* random number */
+inline fn bn_rnd(reg ptr u64[nlimbs] a) -> reg ptr u64[nlimbs] {
+  reg ptr u64[nlimbs] _byte_p;
+  _byte_p = a;
+  a = #randombytes(_byte_p);
+  return a;
+}
+
+
+/* performs multi-limb subtraction */
+/* REGS (params + workspace): 2*nlimbs + 0 (inplace 1st arg.) */
+inline fn bn_subc
+( stack u64[nlimbs] a b
+) -> reg bool, stack u64[nlimbs]
+{
+  inline int i;
+  reg bool cf;
+  reg u64 x1 x2;
+  x1 = a[0];
+  x2 = b[0];
+  cf, x1 = x1 - x2;
+  a[0] =  x1;
+  for i=1 to nlimbs{ 
+    x1 = a[i];
+    x2 = b[i];
+    cf, x1 = x1 - x2 - cf; 
+    a[i] = x1;
+  }
+  return cf, a;
+}
+
+
+/* Loads an array from memory */
+inline fn bn_load
+( reg u64 a
+) -> stack u64[nlimbs]
+{
+  inline int i;
+  stack u64[nlimbs] x;
+  for i = 0 to nlimbs {
+    x[i] = [a + 8*i];
+  }
+  return x;
+}
+
+
+/* Stores a bignum into memory */
+inline fn bn_store
+( reg u64 a,
+  stack u64[nlimbs] b
+)
+{
+  inline int i;
+  for i = 0 to nlimbs {
+    [a + 8*i] = b[i];
+  }
+}
+
+
+/* copy a bignum */
+inline fn bn_copy(stack u64[nlimbs] a) -> stack u64[nlimbs] {
+  inline int i;
+  reg u64 t;
+  stack u64[nlimbs] r;   
+  for i = 0 to nlimbs {
+    t = a[i];
+    r[i] = t;
+  }    
+  return r;
+}
+
+
+/* zeroing a bignum */
+inline fn bn_set0(stack u64[nlimbs] a) -> stack u64[nlimbs] {
+  inline int i;    
+  for i = 0 to nlimbs {
+    a[i] = 0;
+  }    
+  return a;
+}
+
+
+/* leaky(!) version of bit sampling */
+inline fn random_bit_naive() -> reg u8
+{
+   stack u8[1] byte_p;
+   reg ptr u8[1] _byte_p;
+   reg u8 r;
+   _byte_p = byte_p;
+   byte_p = #randombytes(_byte_p);   
+   if (byte_p[0] < 128){
+     r = 0;
+   }else{
+     r = 1;
+   }
+   return r;
+}
+
+
+/* leakage-free bit sampling  */
+inline fn random_bit() -> reg u8
+{
+   stack u8[1] byte_p;
+   reg ptr u8[1] _byte_p;
+   reg u8 r;
+   _byte_p = byte_p;
+   byte_p = #randombytes(_byte_p);   
+   r = byte_p[0];
+   r &= 1;
+   return r;
+}
+
+
+/* sample uniformly at random an element from interval [0..byte_z-1], also returns the loop counter */
+inline fn bn_rsample_i(stack u64[nlimbs] byte_z) -> (inline int, stack u64[nlimbs])
+{
+  stack u64[nlimbs] byte_q byte_p r;
+  reg ptr u64[nlimbs] _byte_p;
+  reg bool cf;
+  inline int i;
+  i = 0;
+  byte_p = bn_set0(byte_p);
+  _, cf, _, _, _, _ = #set0();
+  while (!cf) {
+    _byte_p = byte_p;
+    byte_p = #randombytes(_byte_p);
+    byte_q = bn_copy(byte_p);
+    cf, byte_q = bn_subc(byte_q, byte_z);
+    i = i + 1;
+  }
+  return (i, byte_p);
+}
+
+
+/* same as bn_rsample_i, but does not return the loop counter */
+inline fn bn_rsample(stack u64[nlimbs] byte_z) -> (stack u64[nlimbs])
+{
+  stack u64[nlimbs] byte_q byte_p r;
+  reg ptr u64[nlimbs] _byte_p;
+  reg bool cf;
+  inline int i;
+  i = 0;
+  byte_p = bn_set0(byte_p);
+  _, cf, _, _, _, _ = #set0();
+  while (!cf) {
+    _byte_p = byte_p;
+    byte_p = #randombytes(_byte_p);
+    byte_q = bn_copy(byte_p);
+    cf, byte_q = bn_subc(byte_q, byte_z);
+    i = i + 1;
+  }
+  return byte_p;
+}
+
+
+/* do-while version of rsmaple */
+inline fn bn_rsample1(reg ptr u64[nlimbs] a bnd) -> reg ptr u64[nlimbs] {
+  reg bool cf;
+  while {
+    a = bn_rnd(a);
+    cf = bn_lt_cf(a, bnd);
+  }(!cf)
+  return a;
+}
+
+/* exporting the bn_rsample and bn_rsample1 [entrying points for the C-wrapper]  */ 
+export fn __bn_rsample(reg u64 random_number_p) 
+{ 
+  reg u64 random_number_p2;
+  stack u64[nlimbs] random_number;
+  random_number_p2 = random_number_p; // relax ABI contraints
+  random_number = bn_rsample(bn_glob_p);
+  bn_store(random_number_p2, random_number);
+}
+
+
+export fn __bn_rsample1(reg u64 random_number_p) 
+{ 
+  reg u64 random_number_p2;
+  stack u64[nlimbs] random_number;
+  random_number_p2 = random_number_p; // relax ABI contraints
+  random_number = bn_rsample1(random_number, bn_glob_p);
+  bn_store(random_number_p2, random_number);
+}

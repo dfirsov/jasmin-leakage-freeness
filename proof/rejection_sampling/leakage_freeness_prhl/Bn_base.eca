@@ -1,0 +1,729 @@
+require import AllCore IntDiv CoreMap List Distr DList.
+from Jasmin require import JModel_x86.
+(*import SLH64.*)
+
+from Jasmin require import JBigNum.
+
+(* This file contains a generalized Jasmin extracted code. The
+generalization allows us to prove properties independently of
+parameters such as "nlimbs". Later this code could be related to the
+actual automatically generated leakages by proving a corresponding
+pRHL equivalence. Here are some points on how the current extraction
+was generalized:
+
+  - 'nlimbs' turned into parameter;
+  - 'W64.t ArrayXX.t' turned into 'BN.t'
+  - 'XX' in code turned into 'nlimbs'
+  - removed parameterisation wrt 'SC:Systemcall_t" -- the 'bn_rnd' procedure depends on some additional parameter theories ('Aw8' and 'Abytes')
+  - included also "idealized" versions of 'bn_rnd' and 'bn_rsample' ('bn_rndspec' and 'bn_rsamplespec' respectively).                    *)
+
+
+(*abstract theory BN_base.*)
+
+op nlimbs : int.
+axiom gt0_nlimbs: 0 < nlimbs.
+
+clone import BN with
+  op nlimbs <- nlimbs
+  proof gt0_nlimbs by exact gt0_nlimbs.
+
+(* additional theories to handle type casts
+ in 'bn_rnd'                                *)
+clone export WArray as Abytes with
+  op size <- 8*nlimbs
+  proof ge0_size by smt(gt0_nlimbs).
+
+clone export PolyArray as Aw8 with
+  op size <- 8*nlimbs
+  proof ge0_size by smt(gt0_nlimbs).
+
+(** type-casts bijections *)
+op w64A_bytes (a:W64.t A.t) =
+ Abytes.init64 (fun j => a.[j]).
+op w8A_bytes (a:W8.t Aw8.t) =
+ Abytes.init8 (fun j => a.[j]).
+
+op w8A_w64A (a:W8.t Aw8.t) =
+ A.init (fun i => get64 (w8A_bytes a) i).
+op w64A_w8A (a:W64.t A.t) =
+ Aw8.init (fun i => get8 (w64A_bytes a) i).
+
+lemma w8A_w64AK:
+ cancel w8A_w64A w64A_w8A.
+proof.
+move=> a; apply Aw8.ext_eq => i Hi.
+rewrite initiE //= /get8 initiE //=.
+rewrite initiE 1:/# /= get64E /=.
+by rewrite pack8bE 1:/# initiE 1:/# /= initiE /#.
+qed.
+
+lemma w64A_w8AK:
+ cancel w64A_w8A w8A_w64A.
+proof.
+move=> a; apply A.ext_eq => i Hi.
+rewrite initiE //= get64E /= -(W8u8.unpack8K a.[i]); congr.
+rewrite W8u8.unpack8E; apply W8u8.Pack.ext_eq => x Hx.
+rewrite !initiE //= initiE 1:/# /= initiE 1:/# /=.
+by rewrite /get8 initiE /#.
+qed.
+
+
+lemma Abytes_darray1E x: 
+ mu1 Abytes.darray x = inv (W8.modulus^(8*nlimbs))%r.
+proof.
+have nlimbs_gt0:= gt0_nlimbs.
+pose X:= W8.modulus^(8*nlimbs).
+rewrite /Abytes.darray (dmap1E_can _ _ (Abytes.to_list)).
+  by move=> y; rewrite to_listK.
+ by move=> a; rewrite supp_dlist 1:/#; move => [H _]; rewrite of_listK.
+rewrite dlist1E 1:/# Abytes.size_to_list /=.
+rewrite (StdBigop.Bigreal.BRM.eq_bigr _ _ (fun _ => inv W8.modulus%r)).
+ by move=> i _ /=; rewrite W8_dword1E.
+rewrite StdBigop.Bigreal.BRM.big_const count_predT size_to_list.
+rewrite /X eq_sym -RField.fromintXn 1:/#.
+by rewrite -RField.exprVn 1:/# /RField.exp ifF 1:/# RField.MulMonoid.iteropE /=.
+qed.
+
+(**
+    Parametric "Ideal" extracted code
+**)
+module XtrI = {
+  proc bn_copy (a:BN.t) : BN.t = {
+    var aux: int;
+    
+    var r:BN.t;
+    var i:int;
+    var t:W64.t;
+    r <- witness;
+    i <- 0;
+    while (i < nlimbs) {
+      t <- a.[i];
+      r.[i] <- t;
+      i <- i + 1;
+    }
+    return (r);
+  }
+  
+  proc bn_set0 (a:BN.t) : BN.t = {
+    var aux: int;
+    
+    var i:int;
+    
+    i <- 0;
+    while (i < nlimbs) {
+      a.[i] <- (W64.of_int 0);
+      i <- i + 1;
+    }
+    return (a);
+  }
+
+  proc bn_subc (a:BN.t, b:BN.t) : bool * BN.t = {
+    var aux: int;
+    
+    var cf:bool;
+    var x1:W64.t;
+    var x2:W64.t;
+    var i:int;
+    
+    x1 <- a.[0];
+    x2 <- b.[0];
+    (cf, x1) <- sbb_64 x1 x2 false;
+    a.[0] <- x1;
+    i <- 1;
+    while (i < nlimbs) {
+      x1 <- a.[i];
+      x2 <- b.[i];
+      (cf, x1) <- sbb_64 x1 x2 cf;
+      a.[i] <- x1;
+      i <- i + 1;
+    }
+    return (cf, a);
+  }
+
+  proc bn_lt_cf (a:BN.t, b:BN.t) : bool = {
+    var aux: int;
+
+    var cf:bool;
+    var t:W64.t;
+    var i:int;
+
+    t <- a.[0];
+    (cf, t) <- sbb_64 t b.[0] false;
+    i <- 1;
+    while (i < nlimbs) {
+      t <- a.[i];
+      (cf, t) <- sbb_64 t b.[i] cf;
+      i <- i + 1;
+    }
+    return (cf);
+  }
+  
+  (* idealised version of randombytes *)
+  proc bn_rndspec (a:BN.t) : BN.t = {
+    a <$ BN.bn_rnd;
+    return a;
+  }
+  
+  (* idealised version of rsample *)
+  proc bn_rsamplespec (a:BN.t, bnd: BN.t) : BN.t = {
+    var i;
+    i <$ [0..bn bnd - 1];
+    a <- bn_ofint i;
+    return a;
+  }
+  
+  proc randombytes_Aw8(a: W8.t Aw8.t): W8.t Aw8.t = {
+   a <$ dmap Abytes.darray
+           (fun a => Aw8.init (fun i => Abytes.get8 a i));
+   return a;
+  }
+
+  proc bn_rnd(a: BN.t): BN.t = {
+   var aux: W8.t Aw8.t;
+   var _byte_p:W64.t A.t;
+   _byte_p <- witness;
+   _byte_p <- a;
+   aux <@ randombytes_Aw8
+    (Aw8.init (fun i => get8
+      (Abytes.init64 (fun i => _byte_p.[i])) i));
+   a <- A.init (fun i => get64
+      (Abytes.init8 (fun i => aux.[i])) i);
+    return (a);
+  }
+
+  proc bn_rsample1pre (a:BN.t, bnd:BN.t) : BN.t = {
+    
+    var cf:bool;
+    a <@ bn_rndspec (a);
+    cf <@ bn_lt_cf (a, bnd);
+    while ((! cf)) {
+      a <@ bn_rndspec (a);
+      cf <@ bn_lt_cf (a, bnd);
+    }
+    return (a);
+  }
+
+  proc bn_rsample1 (a:BN.t, bnd:BN.t) : BN.t = {
+    
+    var cf:bool;
+    a <@ bn_rnd (a);
+    cf <@ bn_lt_cf (a, bnd);
+    while ((! cf)) {
+      a <@ bn_rnd (a);
+      cf <@ bn_lt_cf (a, bnd);
+    }
+    return (a);
+  }
+}.
+
+(** LOSSLESS lemmas *)
+lemma bn_copy_ll: islossless XtrI.bn_copy.
+proof.
+proc; wp; while (0 <= i <= nlimbs) (nlimbs - i).
+ by move=> z; auto => /> &m /#.
+by auto => />; smt(gt0_nlimbs).
+qed.
+
+lemma bn_set0_ll: islossless XtrI.bn_set0.
+proof.
+proc; while (0 <= i <= nlimbs) (nlimbs - i).
+ by move=> z; auto => /> &m /#.
+by auto => />; smt(gt0_nlimbs).
+qed.
+
+lemma bn_lt_cf_ll: islossless XtrI.bn_lt_cf.
+proof.
+proc; while (0 <= i <= nlimbs) (nlimbs - i).
+ by move=> z; auto => /> &m /#.
+by auto => />; smt(gt0_nlimbs).
+qed.
+
+lemma bn_subc_ll: islossless XtrI.bn_subc.
+proof.
+proc; while (0 <= i <= nlimbs) (nlimbs - i).
+ by move=> z; auto => /> &m /#.
+by auto => />; smt(gt0_nlimbs).
+qed.
+
+lemma bn_rnd_ll: islossless XtrI.bn_rnd.
+proof.
+islossless.
+smt(dmap_ll dlist_ll W8.dword_ll).
+qed.
+
+(* Correctness lemmas *)
+hoare bn_copy_h _a:
+ XtrI.bn_copy: a=_a ==> res = _a.
+proof.
+proc; while (0 <= i <= nlimbs /\ _a = a /\ (forall j, 0 <= j < i => r.[j] = _a.[j])).
+ by wp; skip; progress; [smt() | smt() | rewrite get_setE => /#]. 
+wp; skip; progress; first 2 smt(gt0_nlimbs).  
+by rewrite tP /#.
+qed.
+
+phoare bn_copy_ph _a:
+ [XtrI.bn_copy: a=_a ==> res = _a] = 1%r.
+proof. by conseq bn_copy_ll (bn_copy_h _a). qed.
+
+hoare bn_set0_h:
+ XtrI.bn_set0 : true ==> bn res = 0.
+proof.
+proc.
+while (bnk i a = 0 /\ 0 <= i <= nlimbs).
+ auto => /> *.
+ by rewrite bnkS 1:/# /= get_setE 1:/# bnk_setO /#.
+by auto => /> &m; smt(bnk0 gt0_nlimbs).
+qed.
+
+phoare bn_set0_ph:
+ [XtrI.bn_set0 : true ==> bn res = 0] = 1%r.
+proof. by conseq bn_set0_ll bn_set0_h. qed.
+
+hoare bn_subc_h _a _b:
+ XtrI.bn_subc :
+ a=_a /\ b=_b 
+ ==> bn_withborrow res = bn _a - bn _b.
+proof.
+have Hlimbs:= gt0_nlimbs; proc; simplify.
+while (1 <= i <= nlimbs /\ _b = b /\
+       (forall j, i <= j < nlimbs => a.[j] = _a.[j]) /\
+       bnk_withborrow i (cf, a) = bnk i _a - bnk i _b).
+ wp; skip => &hr [[[Hi1 Hi2]]] /> Ha H Hc.
+ split; [smt() | split].
+  by move=> j Hj1 Hj2; rewrite get_setE 1:/# ifF /#.
+ rewrite -/(bnk_subc i{hr} cf{hr} a{hr} b{hr}.[i{hr}]).
+ rewrite bnk_withborrowS 1:/# !bnkS 1..2:/# /=.
+ rewrite Ha 1:/#. 
+ by ring H.
+auto => />; split.
+ split; first smt().
+ split.
+  by move=> j Hj1 Hj2; rewrite get_setE /#.
+ rewrite -/(bnk_subc 0 false _a _b.[0]).
+ rewrite {1}(:1=0+1) 1:/# bnk_withborrowS 1:/# expr0 !bnk1 /=.
+ by rewrite /bnk_withborrow /= b2i0 bnk0 /=.
+by move=> a cf i ??? _; rewrite (:i=nlimbs) 1:/#.
+qed.
+
+phoare bn_subc_ph _a _b:
+ [ XtrI.bn_subc :
+   a=_a /\ b=_b 
+   ==> bn_withborrow res = bn _a - bn _b] = 1%r.
+proof. by conseq bn_subc_ll (bn_subc_h _a _b). qed.
+
+hoare bn_lt_cf_h _a _b:
+ XtrI.bn_lt_cf : a=_a /\ b=_b ==> res = bn _a < bn _b.
+proof.
+have Hlimbs:= gt0_nlimbs; proc; simplify.
+while (1 <= i <= nlimbs /\ _a = a /\ _b = b /\
+       cf = (bnk i _a < bnk i _b)).
+ wp; skip => &hr [[[Hi1 _]]] /> Hi.
+ split; [smt() |].
+ rewrite subcE /borrow_sub /=.
+ rewrite (bnk_ltb i{hr} a{hr} b{hr} false _) 1:/#.
+ case: (bnk i{hr} a{hr} < bnk i{hr} b{hr}) => C.
+  by rewrite b2i1 b2i0 C /= ltzS StdOrder.IntOrder.ler_eqVlt to_uint_eq /#.
+ by rewrite b2i0 /#.
+auto => />; split.
+ split; first smt().
+ by rewrite subcE /borrow_sub b2i0 /= !bnk1.
+by move=> i ???; rewrite (:i=nlimbs) 1:/#.
+qed.
+
+phoare bn_lt_cf_ph _a _b:
+ [XtrI.bn_lt_cf : a=_a /\ b=_b ==> res = bn _a < bn _b] = 1%r.
+proof. by conseq bn_lt_cf_ll (bn_lt_cf_h _a _b). qed.
+
+
+(* REJECTION SAMPLING *)
+phoare bn_rndspec_ph _res:
+ [ XtrI.bn_rndspec :
+   true ==> res = _res ] = (mu1 bn_rnd _res).
+proof. by proc; rnd; skip => />. qed.
+
+phoare bn_rsamplespec_ph _bnd _res:
+ [ XtrI.bn_rsamplespec :
+   bnd=_bnd ==> res = _res ] = (mu1 (bn_rnd_bnd bnd) _res).
+proof. 
+proc; wp; rnd; skip => />. 
+by rewrite dmap1E /pred1 /(\o) /=.
+qed.
+
+equiv bn_rndspec_eq:
+ XtrI.bn_rnd ~ XtrI.bn_rndspec:
+ true ==> ={res}.
+proof.
+proc; inline*.
+wp.
+rnd w8A_w64A w64A_w8A.
+auto => />.
+split.
+ by move=> a Ha; rewrite w64A_w8AK.
+move=> _; split.
+ move=> a Ha.
+ rewrite bn_rnd1E dmap1E /pred1 /(\o) /=.
+ rewrite (mu_eq _ _ (pred1 (w64A_bytes a))).
+  move => x; rewrite /pred1.
+  rewrite eq_iff; split.
+   move => /(canLR _ _ (Aw8.init (Abytes.get8 x)) a w64A_w8AK) <-.
+   apply Abytes.ext_eq => i Hi.
+   by rewrite initiE //= /get8 initiE 1:/# /= get64E pack8bE 1:/# /= initiE 1:/# /= initiE 1:/# /= initiE /#.
+  move => ->; apply Aw8.ext_eq=> i Hi.
+  by rewrite !initiE //.
+ rewrite Abytes_darray1E; congr; congr.
+ by rewrite bn_modulusE -!exprM /#.
+move=> _ a Ha; split.
+ by apply bn_rnd_fu.
+by move=> *; rewrite w8A_w64AK.
+qed.
+
+phoare bn_rnd_ph _res:
+ [ XtrI.bn_rnd :
+   true ==> res = _res ] = (mu1 bn_rnd _res).
+proof.
+by conseq bn_rndspec_eq (bn_rndspec_ph _res) => /#.
+qed.
+
+require import DInterval Dexcepted.
+clone import WhileSampling as RS
+ with type input = unit,
+      type t = BN.t,
+      op dt i = bn_rnd.
+
+equiv bn_rsample1_eq:
+ XtrI.bn_rsample1 ~ XtrI.bn_rsamplespec :
+ ={bnd} ==> ={res}.
+proof.
+exlim bnd{2} => _bnd.
+case: (bn _bnd = 0) => Hbnd.
+ bypr res{1} res{2} => //.
+ move=> &1 &2 _a [Hbnd1 Hbnd2].
+ pose P:= Pr[XtrI.bn_rsamplespec(_, _) @ &2 : res = _].
+ have ->: P = 0%r.
+  rewrite /P; byphoare (: bnd=bnd{2} ==> _) => //; hoare.
+  by proc; auto => /> i; rewrite supp_dinter; smt(bnk_cmp).
+ byphoare (: bnd=_bnd ==> _) => //.
+  hoare; proc; while(bnd=_bnd /\ cf = bnk nlimbs a < bnk nlimbs _bnd).
+   ecall (bn_lt_cf_h a bnd).
+   by inline*; auto => /> &m.
+  ecall (bn_lt_cf_h a bnd).
+  inline*; auto => &m -> a Ha r; rewrite Hbnd.
+  smt(bnk_cmp).
+ smt().
+transitivity XtrI.bn_rsample1pre
+ ( _bnd = bnd{2} /\ ={bnd} ==> ={res} )
+ ( _bnd = bnd{2} /\ ={bnd} ==> ={res} ) => //.
++ move=> /> &1 &2 ? ->.
+  by exists (a{2},bnd{2}).
++ proc; while (={a,cf,bnd}).
+   ecall{1} (bn_lt_cf_ph a{1} bnd{1}).
+   ecall{2} (bn_lt_cf_ph a{2} bnd{2}).
+   by call bn_rndspec_eq; auto => />.
+  ecall{1} (bn_lt_cf_ph a{1} bnd{1}).
+  ecall{2} (bn_lt_cf_ph a{2} bnd{2}).
+  by call bn_rndspec_eq; auto => />.
+transitivity
+ RS.SampleW.sample
+ (bnd{1}=_bnd /\ i{2}=tt /\ test{2}=fun _ n =>! bn n < bn _bnd
+  ==> ={res})
+ (bnd{2}=_bnd /\ i{1}=tt /\ test{1}=fun _ n =>! bn n < bn _bnd
+  ==> ={res}) => //=.
++ move=> &1 &2 [E E2].
+  by exists (tt,fun _ n => !bn n < bn _bnd) => /#.
++ proc; simplify; inline SampleWi.sample.
+  wp; while (#pre /\ test0{2}=test{2} /\ a{1}=r0{2} /\
+             (!cf{1})=(test0 i0 r0){2}).
+   ecall {1} (bn_lt_cf_ph a{1} bnd{1}).
+   by inline*; auto => />.
+  ecall {1} (bn_lt_cf_ph a{1} bnd{1}).
+  by inline*; auto => />.
+transitivity RS.SampleE.sample
+ (={i,test} /\ i{2}=tt /\ test{2}=fun _ n =>! bn n < bn _bnd
+  ==> ={res})
+ (bnd{2}=_bnd /\ i{1}=tt /\ test{1}=fun _ n =>! bn n < bn _bnd
+  ==> ={res}) => //=.
++ move=> &1 &2 [E2 E].
+  by exists (tt,fun _ n => !bn n < bn _bnd) => /#.
++ symmetry; conseq RS.sampleE_sampleW.
+   by move => /> &1 &2 -> _ /=; apply BN.bn_rnd_ll.
+  by move=> />.
+proc; simplify.
+rnd : 0 *0; skip => /> &1; split.
+ move=> a; rewrite supp_dmap => [[i />]].
+ rewrite supp_dinter => Hi.
+ rewrite !dmap1E /pred1 /(\o) /=.
+ rewrite bn_rnd_excepted dmapE.
+ apply mu_eq_support.
+ by move=> x; rewrite supp_dinter /(\o) /=.
+move => H1 r /=.
+rewrite supp_dmap => [[a />]].
+rewrite supp_dexcepted /= => [[HA HB]].
+rewrite supp_dmap; exists (bn a); split.
+ by rewrite supp_dinter; smt(bnk_cmp).
+by rewrite bnK.
+qed.
+
+phoare bn_rsample1_ph _bnd _res:
+ [ XtrI.bn_rsample1 :
+   bnd=_bnd ==> res = _res ] = (mu1 (bn_rnd_bnd bnd) _res).
+proof.
+conseq bn_rsample1_eq (bn_rsamplespec_ph _bnd _res) => /> &1.
+by exists (bnd{1},bnd{1}); smt().
+qed.
+
+lemma bn_rsamplespec_ll:
+ phoare [ XtrI.bn_rsamplespec : 0 < bn bnd ==> true ] = 1%r.
+proof.
+proc; simplify; auto => /> &m Hbnd.
+by rewrite weight_dinter /#.
+qed.
+
+lemma bn_rsample1_ll:
+ phoare [ XtrI.bn_rsample1 : 0 < bn bnd ==> true ] = 1%r.
+proof.
+conseq bn_rsample1_eq bn_rsamplespec_ll => //=.
+by move=> /> &1 Hbnd; exists (witness, bnd{1}) => /#.
+qed.
+
+
+
+
+(**
+    Parametric "Real" extracted code
+**)
+from Jasmin require import JLeakage.
+module XtrR = {
+  var leakages : leakages_t
+
+  proc bn_copy (a:BN.t) : BN.t = {
+    var aux: int;
+    var aux_0: W64.t;
+    
+    var r:BN.t;
+    var i:int;
+    var t:W64.t;
+    r <- witness;
+    leakages <- LeakFor(0,nlimbs) :: LeakAddr([]) :: leakages;
+    i <- 0;
+    while (i < nlimbs) {
+      leakages <- LeakAddr([i]) :: leakages;
+      aux_0 <- a.[i];
+      t <- aux_0;
+      leakages <- LeakAddr([]) :: leakages;
+      aux_0 <- t;
+      leakages <- LeakAddr([i]) :: leakages;
+      r.[i] <- aux_0;
+      i <- i + 1;
+    }
+    return (r);
+  }
+  
+  proc bn_set0 (a:BN.t) : BN.t = {
+    var aux: int;
+    var aux_0: W64.t;
+    
+    var i:int;
+    
+    leakages <- LeakFor(0,nlimbs) :: LeakAddr([]) :: leakages;
+    i <- 0;
+    while (i < nlimbs) {
+      leakages <- LeakAddr([]) :: leakages;
+      aux_0 <- (W64.of_int 0);
+      leakages <- LeakAddr([i]) :: leakages;
+      a.[i] <- aux_0;
+      i <- i + 1;
+    }
+    return (a);
+  }
+  
+  proc bn_subc (a:BN.t, b:BN.t) : bool * BN.t = {
+    var aux_0: bool;
+    var aux_1: int;
+    var aux: W64.t;
+    
+    var cf:bool;
+    var x1:W64.t;
+    var x2:W64.t;
+    var i:int;
+    
+    leakages <- LeakAddr([0]) :: leakages;
+    aux <- a.[0];
+    x1 <- aux;
+    leakages <- LeakAddr([0]) :: leakages;
+    aux <- b.[0];
+    x2 <- aux;
+    leakages <- LeakAddr([]) :: leakages;
+    (aux_0, aux) <- sbb_64 x1 x2 false;
+    cf <- aux_0;
+    x1 <- aux;
+    leakages <- LeakAddr([]) :: leakages;
+    aux <- x1;
+    leakages <- LeakAddr([0]) :: leakages;
+    a.[0] <- aux;
+    leakages <- LeakFor(1,nlimbs) :: LeakAddr([]) :: leakages;
+    i <- 1;
+    while (i < nlimbs) {
+      leakages <- LeakAddr([i]) :: leakages;
+      aux <- a.[i];
+      x1 <- aux;
+      leakages <- LeakAddr([i]) :: leakages;
+      aux <- b.[i];
+      x2 <- aux;
+      leakages <- LeakAddr([]) :: leakages;
+      (aux_0, aux) <- sbb_64 x1 x2 cf;
+      cf <- aux_0;
+      x1 <- aux;
+      leakages <- LeakAddr([]) :: leakages;
+      aux <- x1;
+      leakages <- LeakAddr([i]) :: leakages;
+      a.[i] <- aux;
+      i <- i + 1;
+    }
+    return (cf, a);
+  }
+  
+  proc bn_lt_cf (a:BN.t, b:BN.t) : bool = {
+    var aux_0: bool;
+    var aux_1: int;
+    var aux: W64.t;
+    
+    var cf:bool;
+    var t:W64.t;
+    var i:int;
+    
+    leakages <- LeakAddr([0]) :: leakages;
+    aux <- a.[0];
+    t <- aux;
+    leakages <- LeakAddr([0]) :: leakages;
+    (aux_0, aux) <- sbb_64 t b.[0] false;
+    cf <- aux_0;
+    t <- aux;
+    leakages <- LeakFor(1,nlimbs) :: LeakAddr([]) :: leakages;
+    i <- 1;
+    while (i < nlimbs) {
+      leakages <- LeakAddr([i]) :: leakages;
+      aux <- a.[i];
+      t <- aux;
+      leakages <- LeakAddr([i]) :: leakages;
+      (aux_0, aux) <- sbb_64 t b.[i] cf;
+      cf <- aux_0;
+      t <- aux;
+      i <- i + 1;
+    }
+    return (cf);
+  }
+  
+  proc randombytes_Aw8(a: W8.t Aw8.t): W8.t Aw8.t = {
+   a <$ dmap Abytes.darray
+         (fun a => Aw8.init (fun i => Abytes.get8 a i));
+   return a;
+  }
+  proc bn_rnd(a: BN.t): BN.t = {
+   var aux_0: W8.t Aw8.t;
+   var aux: W64.t A.t;  
+   var _byte_p: W64.t A.t;
+   _byte_p <- witness;
+   leakages <- LeakAddr([]) :: leakages;
+   aux <- a;
+   _byte_p <- aux;
+   leakages <- LeakAddr([]) :: leakages;
+   aux_0 <@ randombytes_Aw8
+     (Aw8.init (fun i => get8
+       (Abytes.init64 (fun i => _byte_p.[i])) i));
+   a <- A.init (fun i => get64 (Abytes.init8 (fun i => aux_0.[i])) i);
+   return (a);
+  }
+  
+  proc bn_rsample1 (a:BN.t, bnd:BN.t) : BN.t = {
+    var aux_0: bool;
+    var aux: BN.t;
+    
+    var cf:bool;
+    
+    leakages <- LeakAddr([]) :: leakages;
+    aux <@ bn_rnd (a);
+    a <- aux;
+    leakages <- LeakAddr([]) :: leakages;
+    aux_0 <@ bn_lt_cf (a, bnd);
+    cf <- aux_0;
+    leakages <- LeakCond((! cf)) :: LeakAddr([]) :: leakages;
+    
+    while ((! cf)) {
+      leakages <- LeakAddr([]) :: leakages;
+      aux <@ bn_rnd (a);
+      a <- aux;
+      leakages <- LeakAddr([]) :: leakages;
+      aux_0 <@ bn_lt_cf (a, bnd);
+      cf <- aux_0;
+    leakages <- LeakCond((! cf)) :: LeakAddr([]) :: leakages;
+    
+    }
+    return (a);
+  }
+}.
+
+(** XtrI vs. XtrR *)
+equiv bn_copy_proj:
+ XtrI.bn_copy ~ XtrR.bn_copy : ={arg} ==> ={res}
+ by sim.
+
+equiv bn_set0_proj:
+ XtrI.bn_set0 ~ XtrR.bn_set0 : ={arg} ==> ={res}.
+by proc; while (={i,a}); auto => />.
+qed.
+
+equiv bn_subc_proj:
+ XtrI.bn_subc ~ XtrR.bn_subc : ={arg} ==> ={res}
+ by sim.
+
+equiv bn_lt_cf_proj:
+ XtrI.bn_lt_cf ~ XtrR.bn_lt_cf : ={arg} ==> ={res}
+ by sim.
+
+equiv __bn_rnd_proj:
+ XtrI.bn_rnd ~ XtrR.bn_rnd : ={arg} ==> ={res}
+ by sim.
+
+equiv bn_rsample1_proj:
+ XtrI.bn_rsample1 ~ XtrR.bn_rsample1 : ={arg} ==> ={res}
+ by sim.
+
+
+(* ct property *)
+equiv bn_copy_ct:
+ XtrR.bn_copy ~ XtrR.bn_copy :
+  ={XtrR.leakages} ==> ={XtrR.leakages}
+by proc; sim.
+
+equiv bn_set0_ct:
+ XtrR.bn_set0 ~ XtrR.bn_set0 :
+  ={XtrR.leakages} ==> ={XtrR.leakages}
+by proc; sim.
+
+equiv bn_subc_ct:
+ XtrR.bn_subc ~ XtrR.bn_subc :
+  ={XtrR.leakages} ==> ={XtrR.leakages}
+by proc; sim.
+
+equiv bn_lt_cf_ct:
+ XtrR.bn_lt_cf ~ XtrR.bn_lt_cf :
+  ={XtrR.leakages} ==> ={XtrR.leakages}
+by proc; sim.
+
+equiv bn_rnd_ct:
+ XtrR.bn_rnd ~ XtrR.bn_rnd :
+  ={XtrR.leakages} ==> ={XtrR.leakages}
+by proc; inline*; sim.
+
+equiv bn_rsample1_ct:
+ XtrR.bn_rsample1 ~ XtrR.bn_rsample1 :
+  ={bnd, XtrR.leakages} ==> ={XtrR.leakages}.
+proof.
+proc; wp.
+while (={bnd, cf, XtrR.leakages}).
+ wp; call (: ={arg,XtrR.leakages} ==> ={res, XtrR.leakages}); first by sim.
+ by inline*; auto => /> *.
+wp; call (: ={arg,XtrR.leakages} ==> ={res, XtrR.leakages}); first by sim.
+by inline*; auto => /> *.
+qed.
+

@@ -1,0 +1,1037 @@
+require import AllCore IntDiv CoreMap List Distr.
+from Jasmin require import JModel.
+from Jasmin require import JBigNum.
+
+require import LeakageFreeness_Analysis.
+
+
+op nlimbs : int.
+axiom gt0_nlimbs: 0 < nlimbs.
+
+require Bn_base.
+clone import Bn_base as BN_base
+ with op nlimbs <- nlimbs
+      proof gt0_nlimbs by exact gt0_nlimbs.
+
+import BN.
+
+
+(**
+  * Leakage-freeness for rejection sampling
+  * =======================================
+  *
+  * The following development illustrates the
+  * proof of Leakage-freeness for the rejection
+  * sampling procedure [bn_rsample1]. 
+
+The formalization is parametric on the number of
+limbs. It can be instantiated to prove LF for
+concrete uses of 'rsample1' (see file
+"UniformSampling_Concrete_LF.ec").
+                                                  *)
+
+import BN_base.
+
+(** The following theories instantiate the
+ abstract developments for individual procedures.*)
+theory LF_bn_lt.
+
+clone import LF_Meta as Meta
+ with type pin_t <- unit, (*  *)
+      type sin_t <- BN.t*BN.t, (* a, b *)
+      type out_t <- bool. (* res *)
+
+module JI = {
+ proc main(pin: unit, sin: BN.t*BN.t) : bool = {
+  var r;
+  r <@ XtrI.bn_lt_cf(sin.`1,sin.`2);
+  return r;
+ }
+}.
+
+lemma stateless_JI &m x: (glob JI){m} = x
+ by done.
+
+module JR = {
+ proc main(pin: unit, sin: BN.t*BN.t) : bool = {
+  var r;
+  r <@ XtrR.bn_lt_cf(sin.`1,sin.`2);
+  return r;
+ }
+ proc mainG(pin: unit, sin: BN.t*BN.t) : bool * leakages_t = {
+  var r;
+  r <@ XtrR.bn_lt_cf(sin.`1,sin.`2);
+  return (r, XtrR.leakages);
+ }
+}.
+
+lemma proj_JR_JI:
+ equiv [ JR.main ~ JI.main
+       : ={pin, sin} ==> ={res} ]
+ by sim.
+
+lemma globJR:
+ equiv [ JR.main ~ JR.mainG
+       : ={pin,sin,glob JR}
+         ==> ={glob JR} /\ res{2} = (res{1},glob JR){2} ].
+proof.
+proc*; inline JR.main JR.mainG.
+wp; call (: ={arg,glob JR} ==> ={res,glob JR}) => //.
+ by proc; sim.
+by auto.
+qed.
+
+lemma prMuE P pin sin &m:
+ Pr[ JR.main(pin,sin) @ &m : P (res,glob JR)]
+ = RealSeries.sum (fun (x:_*_) => Pr [JR.main(pin,sin) @ &m : P (res,glob JR) /\ res=x.`1 /\ (glob JR)=x.`2]).
+proof.
+have ->: Pr[JR.main(pin, sin) @ &m : P (res,glob JR)]
+  = Pr[JR.mainG(pin, sin) @ &m : P res].
+ byequiv => //.
+ by conseq globJR => /> // /#.
+rewrite Pr [muE].
+apply RealSeries.eq_sum; move => [r l].
+rewrite eq_sym.
+by byequiv globJR => /> /#.
+qed.
+
+end LF_bn_lt.
+
+lemma GenLF_bn_lt:
+ equiv[ LF_bn_lt.Meta.RSim(LF_bn_lt.JI, LF_bn_lt.JR).main ~ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main :
+  ={pin, sin, glob LF_bn_lt.JR} ==> ={res, glob LF_bn_lt.JR}].
+proof.
+apply (LF_bn_lt.Meta.CT_det_GenLF LF_bn_lt.JR LF_bn_lt.JI).
++ by apply LF_bn_lt.stateless_JI.
++ by apply LF_bn_lt.proj_JR_JI.
++ by apply LF_bn_lt.prMuE.
++ by proc; call bn_lt_cf_ct; auto => />.
+exists (fun _ (x:_*_) => bn x.`1 < bn x.`2) => ? [a b].
+by proc; ecall (bn_lt_cf_h a b); auto.
+qed.
+
+lemma LF_bn_lt:
+ equiv[ LF_bn_lt.JR.main ~ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main :
+  ={pin, sin, glob LF_bn_lt.JR} ==> ={res, glob LF_bn_lt.JR}].
+proof.
+apply (LF_bn_lt.Meta.ll_LF LF_bn_lt.JR LF_bn_lt.JI _ _ _ _ GenLF_bn_lt).
++ by apply LF_bn_lt.stateless_JI.
++ by apply LF_bn_lt.proj_JR_JI.
++ by apply LF_bn_lt.prMuE.
+by proc; call bn_lt_cf_ll.
+qed.
+
+
+theory LF_bn_rnd.
+
+clone import LF_Meta as Meta
+ with type pin_t <- unit, (*  *)
+      type sin_t <- BN.t, (* a *)
+      type out_t <- BN.t. (* res *)
+
+module JI = {
+ proc main(pin: unit, sin: BN.t) : BN.t = {
+  var r;
+  r <@ XtrI.bn_rnd(sin);
+  return r;
+ }
+}.
+
+lemma stateless_JI &m x: (glob JI){m} = x
+ by done.
+
+module JR = {
+ proc main(pin: unit, sin: BN.t) : BN.t = {
+  var r;
+  r <@ XtrR.bn_rnd(sin);
+  return r;
+ }
+ proc mainG(pin: unit, sin: BN.t) : BN.t * leakages_t = {
+  var r;
+  r <@ XtrR.bn_rnd(sin);
+  return (r, XtrR.leakages);
+ }
+}.
+
+lemma proj_JR_JI:
+ equiv [ JR.main ~ JI.main
+       : ={pin, sin} ==> ={res} ]
+ by sim.
+
+lemma globJR:
+ equiv [ JR.main ~ JR.mainG
+       : ={pin,sin,glob JR}
+         ==> ={glob JR} /\ res{2} = (res{1},glob JR){2} ].
+proof.
+proc*; inline JR.main JR.mainG.
+wp; call (: ={arg,glob JR} ==> ={res,glob JR}) => //.
+ by proc; sim.
+by auto.
+qed.
+
+lemma prMuE P pin sin &m:
+ Pr[ JR.main(pin,sin) @ &m : P (res,glob JR)]
+ = RealSeries.sum (fun (x:_*_) => Pr [JR.main(pin,sin) @ &m : P (res,glob JR) /\ res=x.`1 /\ (glob JR)=x.`2]).
+proof.
+have ->: Pr[JR.main(pin, sin) @ &m : P (res,glob JR)]
+  = Pr[JR.mainG(pin, sin) @ &m : P res].
+ byequiv => //.
+ by conseq globJR => /> // /#.
+rewrite Pr [muE].
+apply RealSeries.eq_sum; move => [r l].
+rewrite eq_sym.
+by byequiv globJR => /> /#.
+qed.
+
+end LF_bn_rnd.
+
+lemma GenLF_bn_rnd:
+ equiv[ LF_bn_rnd.Meta.RSim(LF_bn_rnd.JI, LF_bn_rnd.JR).main ~ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main :
+  ={pin, sin, glob LF_bn_rnd.JR} ==> ={res, glob LF_bn_rnd.JR}].
+proof. by proc; inline*; auto. qed.
+
+lemma LF_bn_rnd:
+ equiv[ LF_bn_rnd.JR.main ~ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main :
+  ={pin, sin, glob LF_bn_rnd.JR} ==> ={res, glob LF_bn_rnd.JR}].
+proof.
+apply (LF_bn_rnd.Meta.ll_LF LF_bn_rnd.JR LF_bn_rnd.JI _ _ _ _ GenLF_bn_rnd). 
++ by apply LF_bn_rnd.stateless_JI.
++ by apply LF_bn_rnd.proj_JR_JI.
++ by apply LF_bn_rnd.prMuE.
+by proc; call bn_rnd_ll.
+qed.
+
+
+
+theory LF_bn_rsample.
+
+clone import LF_Meta as Meta
+ with type pin_t <- BN.t, (* bnd *)
+      type sin_t <- BN.t, (* a *)
+      type out_t <- BN.t. (* res *)
+
+module JI = {
+ proc main(pin : BN.t, sin: BN.t) : BN.t = {
+  var r;
+  r <@ XtrI.bn_rsample1(sin,pin);
+  return r;
+ }
+}.
+
+lemma stateless_JI &m x: (glob JI){m} = x
+ by done.
+
+module JR = {
+ proc main(pin : BN.t, sin: BN.t) : BN.t = {
+  var r;
+  r <@ XtrR.bn_rsample1(sin,pin);
+  return r;
+ }
+ proc mainG(pin : BN.t, sin: BN.t) : BN.t * leakages_t = {
+  var r;
+  r <@ XtrR.bn_rsample1(sin,pin);
+  return (r, XtrR.leakages);
+ }
+}.
+
+lemma proj_JR_JI:
+ equiv [ JR.main ~ JI.main
+       : ={pin, sin} ==> ={res} ]
+ by sim.
+
+lemma globJR:
+ equiv [ JR.main ~ JR.mainG
+       : ={pin,sin,glob JR}
+         ==> ={glob JR} /\ res{2} = (res{1},glob JR){2} ].
+proof.
+proc*; inline JR.main JR.mainG.
+wp; call (: ={arg,glob JR} ==> ={res,glob JR}) => //.
+ by proc; sim.
+by auto.
+qed.
+
+lemma prMuE P pin sin &m:
+ Pr[ JR.main(pin,sin) @ &m : P (res,glob JR)]
+ = RealSeries.sum (fun (x:_*_) => Pr [JR.main(pin,sin) @ &m : P (res,glob JR) /\ res=x.`1 /\ (glob JR)=x.`2]).
+proof.
+have ->: Pr[JR.main(pin, sin) @ &m : P (res,glob JR)]
+  = Pr[JR.mainG(pin, sin) @ &m : P res].
+ byequiv => //.
+ by conseq globJR => /> // /#.
+rewrite Pr [muE].
+apply RealSeries.eq_sum; move => [r l].
+rewrite eq_sym.
+by byequiv globJR => /> /#.
+qed.
+
+end LF_bn_rsample.
+
+
+(**
+  * PROOF OF LEAKAGE-FREENESS FOR bn_rsample1
+***)
+
+(* Auxiliary theory for decoupling the sampling from leaked events *)
+abstract theory SampleEventSwap.
+
+type in_t.
+type out_t.
+
+require import DBool DProd.
+import Biased.
+
+module SampleEvent = {
+ proc sample(i: in_t, d: in_t -> out_t distr, P: in_t -> out_t -> bool): out_t * bool = {
+  var b, x;
+  x <$ d i;
+  b <- P i x;
+  return (x, b);
+ }
+ proc sampleEv(i: in_t, d: in_t -> out_t distr, P: in_t -> out_t -> bool): out_t * bool = {
+  var b, x;
+  b <$ dbiased (mu (d i) (P i));
+  x <$ if b then dcond (d i) (P i) else dcond (d i) (predC (P i));
+  return (x, b);
+ }
+}.
+
+
+clone DLetSampling as LS with
+ type t <- bool,
+ type u <- out_t.
+
+equiv sample_sampleEv:
+ SampleEvent.sample ~ SampleEvent.sampleEv:
+ ={i, d, P} /\ is_lossless (d i){2} 
+ ==> ={res}.
+proof.
+proc; simplify; wp.
+case: ((mu (d i) (P i)){2}=0%r).
+ seq 0 1: (#pre /\ !b{2}).
+  rnd{2}; auto => /> &m Hll Hb; split; first by apply dbiased_ll.
+  by move=> _ b; rewrite Hb dbiased0 supp_dunit.
+ rnd; auto => /> &m Hll Hb0 Hb; split.
+  move=> xR; rewrite dcond_supp; move=> [Hx1 Hx2].
+  by rewrite dcond1E Hx2 /= mu_not Hll Hb0 /=.
+ move => H xL Hx; split.
+  by rewrite dcond_supp Hx /predC /=; apply (eq0_mu (d{m} i{m}) (P{m} i{m})).
+ by rewrite dcond_supp Hx /predC /= /#.
+case: ((mu (d i) (P i)){2}=1%r).
+ seq 0 1: (#pre /\ b{2}).
+  rnd{2}; auto => /> &m Hll _ Hb; split; first by apply dbiased_ll.
+  by move=> _ b; rewrite Hb dbiased1 supp_dunit.
+ rnd; auto => /> &m Hll _ Hb1 Hb; split.
+  move=> xR; rewrite dcond_supp; move=> [Hx1 Hx2].
+  by rewrite dcond1E Hx2 Hb1.
+ move => _ xL Hx; split.
+  rewrite dcond_supp Hx /=. 
+  apply (mu_in_weight (P{m} i{m}) (d{m} i{m})) => //.
+  by rewrite Hb1 Hll.
+ by rewrite dcond_supp Hx /#.
+transitivity{1} { x <@ LS.SampleDLet.sample(dbiased (mu (d i) (P i)), fun b=> if b then dcond (d i) (P i) else dcond (d i) (predC (P i))); }
+ (={i,d,P} /\ is_lossless (d i){2} /\ 0%r < (mu (d i) (P i)){2} < 1%r
+  ==> ={x,i,d,P} /\ is_lossless (d i){2} /\ 0%r < (mu (d i) (P i)){2} < 1%r)
+ (={i,d,P} /\ is_lossless (d i){2} /\ 0%r < (mu (d i) (P i)){2} < 1%r ==> ={x} /\ P{1} i{1} x{1}=b{2}) => //.
+  by move=> /> &m Hll Hbias1 Hbias2; exists P{m} d{m} i{m}; smt(mu_bounded).
+ inline*; auto => /> &m Hll Hbias1 Hbias2; split.
+  move=> xR.
+  by rewrite -marginal_sampling_pred //.
+ move => H xL HxL.
+ rewrite supp_dlet.
+ case: (P{m} i{m} xL) => bL.
+  exists true => /=.
+  rewrite supp_dbiased 1:/#.
+  by rewrite dcond_supp.
+ exists false => /=.
+ rewrite supp_dbiased 1:/#.
+ by rewrite dcond_supp.
+transitivity{1} { x <@ LS.SampleDep.sample(dbiased (mu (d i) (P i)), fun b=> if b then dcond (d i) (P i) else dcond (d i) (predC (P i))); }
+ (={i,d,P} /\ 0%r < (mu (d i) (P i)){2} < 1%r ==> ={x,i,d,P} /\ 0%r < (mu (d i) (P i)){2} < 1%r)
+ (={i,d,P} /\ 0%r < (mu (d i) (P i)){2} < 1%r ==> ={x} /\ P{1} i{1} x{1}=b{2}) => //.
+  by move=> /> &m Hll Hbias1 Hbias2; exists P{m} d{m} i{m}; auto.
+ by symmetry; call LS.SampleDepDLet => //=.
+inline*; auto => /> &m Hbias1 Hbias2 b Hb xL.
+by case: (b) => Cb; rewrite dcond_supp /#.
+qed.
+
+end SampleEventSwap.
+
+
+
+(** Auxiliary theory to perform the eager/lazy sampling on the rejection loop *)
+abstract theory RejectionLoop.
+
+type t.
+
+op dt: t distr.
+op p : t -> t -> bool.
+(* workaround to get a lossless distribution on the underlying RO (required in EC's
+ PROXtrI.ec library *)
+op t0: t.
+op p_ll bnd x = bnd=t0 \/ p bnd x.
+
+axiom dt_ll: is_lossless dt.
+axiom t0_ll: 0%r < mu1 dt t0.
+axiom p_t0E: p t0=pred0.
+axiom p_t0P bnd: bnd <> t0 => p bnd t0.
+axiom dtPN_ll bnd: 0%r < mu dt (predC (p bnd)).
+
+lemma dcondP_ll bnd b:
+ is_lossless (if b then dcond dt (p_ll bnd) else dcond dt (predC (p bnd))).
+proof.
+case: (b) => ?.
+ rewrite /p_ll dcond_ll.
+ case: (bnd=t0) => E /=; first smt(dt_ll).
+ apply (StdOrder.RealOrder.ltr_le_trans (mu1 dt t0) _ _ t0_ll).
+ apply mu_le => x _ @/pred1 /= ->.
+ by apply p_t0P.
+rewrite dcond_ll; exact dtPN_ll.
+qed.
+
+lemma p_llE bnd:
+ bnd <> t0 => p_ll bnd = p bnd by smt().
+
+module type AdvLoop = {
+  proc loop_init(b: bool): unit
+  proc loop_body(b: bool): unit
+}.
+
+require import DBool.
+import Biased.
+
+module RejLoop(L:AdvLoop) = {
+  proc loopEager (bnd: t) = {
+    var x, b;
+    b <$ dbiased (mu dt (p bnd));
+    x <$ if b then dcond dt (p bnd)
+              else dcond dt (predC (p bnd));
+    L.loop_init(b);
+    while (! b) {
+      b <$ dbiased (mu dt (p bnd));
+      x <$ if b then dcond dt (p bnd)
+                else dcond dt (predC (p bnd));
+      L.loop_body(b);
+    }
+    return x;
+  }
+  proc loopLazy (bnd: t) = {
+    var x, b;
+    b <$ dbiased (mu dt (p bnd));
+    L.loop_init(b);
+    while (!b) {
+      b <$ dbiased (mu dt (p bnd));
+      L.loop_body(b);
+    }
+    x <$ dcond dt (p bnd);
+    return x;
+  }
+}.
+
+
+require import PROM SmtMap.
+
+clone import PROM.FullRO as ROx with
+    type in_t    <- t*bool,
+    type out_t   <- t, 
+    type d_in_t  <- t,
+    type d_out_t <- t,
+    op   dout    <- fun y:_*_=> if y.`2
+                            then dcond dt (p_ll y.`1)
+                            else dcond dt (predC (p y.`1))
+  proof *.
+
+module RejLoop_D (L:AdvLoop) (O: RO) = {
+ proc distinguish(bnd): t = {
+  var b, x;
+  b <$ dbiased (mu dt (p bnd));
+  O.sample((bnd,b));
+  L.loop_init(b);
+  while (!b) {
+    O.rem((bnd,b));
+    b <$ dbiased (mu dt (p bnd));
+    O.sample((bnd,b));
+    L.loop_body(b);
+  }
+  x <@ O.get((bnd,b));
+  return x;
+ }
+}.
+
+section.
+
+declare module L <: AdvLoop {+XtrR}.
+
+module RejLoopD = RejLoop_D(L).
+
+lemma pr_loopEager_t0 &m:
+ Pr[RejLoop(L).loopEager(t0) @ &m : true] = 0%r.
+proof.
+byphoare (:arg=t0 ==> _) => //.
+proc; hoare.
+while (!b /\ bnd=t0) => //.
+ call (:true).
+ auto => /> &1 b b'.
+ by rewrite p_t0E mu0 dbiased0 supp_dunit => -> /=.
+call (:true); auto => /> b.
+by rewrite p_t0E mu0 dbiased0 supp_dunit => -> /=.
+qed.
+
+lemma pr_loopLazy_t0 &m:
+ Pr[RejLoop(L).loopLazy(t0) @ &m : true] = 0%r.
+proof.
+byphoare (:arg=t0 ==> _) => //.
+proc; hoare.
+seq 3: (bnd=t0).
+ while (!b /\ bnd=t0) => //.
+  call (:true).
+  auto => /> &1 b b'.
+  by rewrite p_t0E mu0 dbiased0 supp_dunit => -> /=.
+ call (:true); auto => /> b.
+ by rewrite p_t0E mu0 dbiased0 supp_dunit => -> /=.
+by auto => /> x; rewrite p_t0E dcond_supp /pred0 /=.
+qed.
+
+equiv rejloop_t0_eq:
+ RejLoop(L).loopEager ~ RejLoop(L).loopLazy
+ : ={bnd} /\ bnd{2}=t0 ==> ={res, glob L}.
+proof.
+bypr (res,glob L){1} (res,glob L){2} => //.
+move=> /> &1 &2 [r l] -> ->.
+have ->: Pr[RejLoop(L).loopEager(t0) @ &1 : (res, (glob L)) = (r, l)] = 0%r.
+ by rewrite -(pr_loopEager_t0 &1); smt(mu_le pr_loopEager_t0).
+by rewrite eq_sym -(pr_loopLazy_t0 &1); smt(mu_le pr_loopLazy_t0).
+qed.
+
+equiv rejloop_eq:
+ RejLoop(L).loopEager ~ RejLoop(L).loopLazy
+ : ={bnd, glob L} ==> ={res, glob L}.
+proof.
+proc*; case: (bnd{2}=t0).
+ by call rejloop_t0_eq => //.
+have ?:= dcondP_ll.
+transitivity{1}
+ { RO.init();
+   r <@ RejLoopD(RO).distinguish(bnd); }
+ ( ={bnd,glob L} /\ bnd{2} <> t0 ==> ={r, glob L} )
+ ( ={bnd,glob L} /\ bnd{2} <> t0 ==> ={r, glob L} ) => //.
++ by move=> /> &2 H; exists (glob L){2} bnd{2} => />.
++ inline RejLoop(L).loopEager RejLoopD(RO).distinguish.
+  inline RO.sample RO.get RO.init.
+  seq 4 8: (={bnd0, b, glob L} /\ bnd0{2} <> t0 /\ RO.m{2}=empty.[(bnd0{2},b{2}) <- x{1}]).
+   swap {2} 1 5.
+   seq 3 5: (={bnd0, b, glob L} /\ bnd0{2} <> t0 /\ x{1}=r1{2} /\ x3{2}=(bnd0{2},b{2})).
+    by rnd; wp; rnd; auto => /> &2 Hbnd b Hb; split; move => y; rewrite !p_llE //.
+   rcondt {2} 2.
+    by move=> &m; auto => /> *; apply mem_empty.
+   by call (: true); auto => />.
+  seq 1 1: (b{2} /\ #pre).
+   while (#pre).
+    seq 0 1: (!b{2} /\ ={bnd0, b, glob L} /\ bnd0{2} <> t0 /\ RO.m{2}=empty).
+     inline*; auto => /> &1 &2 *.
+     rewrite /rem set_valE empty_valE /= -(tomapK empty); congr.
+     by rewrite empty_valE /#.
+    seq 2 4: (#[2:]pre /\ x{1}=r2{2} /\ x4{2}=(bnd0{2},b{2})).
+     by rnd; wp; rnd; auto => /> *; split; move => y; rewrite !p_llE //.
+    rcondt {2} 1.
+     by move=> &m; auto => /> *; apply mem_empty.
+    by call (: true); auto => /> *.
+   done.
+  rcondf {2} 3.
+   by move=> &m; auto => /> *; smt(mem_set). 
+  wp; rnd{2}; auto => /> &1 &2 *; split => *.
+   smt().
+  by rewrite get_setE.
+transitivity{1}
+ { LRO.init();
+   r <@ RejLoopD(LRO).distinguish(bnd); }
+ ( ={bnd, glob L} /\ bnd{2} <> t0 ==> ={r, glob L} )
+ ( ={bnd, glob L} /\ bnd{2} <> t0 ==> ={r, glob L} ) => //.
++ by move=> /> &2 *; exists (glob L){2} bnd{2} => />.
++ call (FullEager.RO_LRO_D RejLoopD) => />.
+   move=> /> xb.
+   by case: (xb) => ? /#.
+  by inline*; auto => />.
+inline RejLoop(L).loopLazy RejLoopD(LRO).distinguish.
+inline LRO.sample LRO.get LRO.init.
+seq 6 4: (={bnd0, b, glob L} /\ bnd0{2} <> t0 /\ RO.m{1}=empty /\ b{2}).
+ while (={bnd0, b, glob L} /\ bnd0{2} <> t0 /\ RO.m{1}=empty).
+  inline *; call (: true); auto => /> &2.
+  smt(rem_id mem_empty).
+ by wp; call (: true); auto => /> *.
+rcondt {1} 3.
+ by move=> &m; auto => />; smt(mem_empty).
+by auto => /> &2 Hb *; smt(p_llE get_setE).
+qed.
+
+end section.
+
+end RejectionLoop.
+
+(** Instantiation of abstract theories *)
+clone import SampleEventSwap as EvSwap
+ with type in_t <- BN.t,
+      type out_t <- BN.t.
+
+clone import RejectionLoop as RSloop
+ with type t <- BN.t,
+      op p <- fun bnd x => bn x < bn bnd,
+      op t0 <- bn_ofint 0,
+      op dt <- bn_rnd
+ proof dt_ll by exact BN.bn_rnd_ll
+ proof t0_ll by smt(bn_rnd1E bn_modulusE StdOrder.IntOrder.expr_gt0)
+ proof p_t0E by (move => *; rewrite bn_ofintK mod0z; smt(bnk_cmp))
+ proof *.
+realize p_t0P.
+move=> bnd Hbnd; rewrite bn_ofintK modz_small 1:bn_modulusE /=.
+ smt(StdOrder.IntOrder.expr_gt0).
+have ?: bn bnd <> 0 by smt(bnK).
+smt(bnk_cmp).
+qed.
+realize dtPN_ll.
+move=> bnd.
+apply (StdOrder.RealOrder.ltr_le_trans (mu1 bn_rnd bnd)).
+ by rewrite bn_rnd1E StdOrder.RealOrder.invr_gt0; smt(bnk_cmp).
+by apply mu_le => x _ @/predC @/pred1 /= -> /#.
+qed.
+
+
+module RSampleLoop = {
+  proc loop_init(b: bool): unit = {
+    var r1, _r1;
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    r1 <@ LF_bn_rnd.JR.main(tt, witness);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    _r1 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+    XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+  }
+  proc loop_body(b: bool): unit = {
+    var r1, _r1;
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    r1 <@ LF_bn_rnd.JR.main(tt, witness);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    _r1 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+    XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+  }
+}.
+
+(** Main result establishes the Coupled-Composition property
+ (CC, in the LeakageFreeness_Analysis terminology) for the rejection sampling.
+ The strategy  is the following:
+   1) exploit the CT property (more precisely,
+  its simpler formulation for procedures for which
+  divergence is determined by public  inputs -- CT')
+  of the called procedures (__bn_rnd and __bn_lt_cf)
+  in order to decouple the generation of leakage in
+  those functions from the relevant data;
+   2) decouple the leaked event from the generated
+  number (abstract theory EventSwap)
+   3) rearrange the samplings on the rejection loop
+  (Eager/Lazy sampling reasoning, based on the abstract
+  theory RejectionLoop).
+
+ In the between, a lot of boilerplate is needed
+ to fit the formalization on the abstract setting
+ of leakage-free definitions and related
+ meta-properties (LeakageFreeness_Analysis.ec), as well
+ as instantiations required from the abstract
+ theories.                                  *)
+
+require import DInterval.
+
+lemma CC_bn_rsample:
+ equiv[ LF_bn_rsample.JR.main ~ LF_bn_rsample.Meta.CC(LF_bn_rsample.JI, LF_bn_rsample.JR).main :
+  ={pin, sin, glob LF_bn_rsample.JR} ==> ={res, glob LF_bn_rsample.JR}].
+proof.
+proc*; simplify.
+inline LF_bn_rsample.Meta.CC(LF_bn_rsample.JI, LF_bn_rsample.JR).main.
+inline LF_bn_rsample.JR.main LF_bn_rsample.JI.main XtrR.bn_rsample1.
+transitivity {1}
+ { bnd <- pin;
+   a <- sin;
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   a <@ LF_bn_rnd.JR.main(tt,a);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   cf <@ LF_bn_lt.JR.main(tt, (a,bnd));
+   XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   while (!cf) {
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     a <@ LF_bn_rnd.JR.main(tt,a);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     cf <@ LF_bn_lt.JR.main(tt, (a,bnd));
+     XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   }
+   r <- a;
+ }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} )
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} ) => //.
++ by move=> /> &2 /#.
++ inline LF_bn_rnd.JR.main LF_bn_lt.JR.main.
+  wp; while(#pre /\ ={a,cf,bnd}).
+   wp; call(: ={XtrR.leakages}); first by sim.
+   by inline*; auto => />.
+  wp; call(: ={XtrR.leakages}); first by sim.
+  by inline*; auto => />.
+
+transitivity {1}
+ { bnd <- pin;
+   a <- sin;
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   a <@ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main(tt,a, witness);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   cf <@ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main(tt, (a,bnd), (witness, witness));
+   XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   while (!cf) {
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     a <@ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main(tt,a, witness);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     cf <@ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main(tt, (a,bnd), (witness, witness));
+     XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   }
+   r <- a;
+ }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} )
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} ) => //.
++ move=> /> &2 /#.
++ wp; while(#pre /\ ={a,cf,bnd}).
+   wp; call LF_bn_lt.
+   by wp; call LF_bn_rnd; auto => />.
+  wp; call LF_bn_lt.
+  by wp; call LF_bn_rnd; auto => />.
+inline LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main.
+inline LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main.
+swap {1} [4..5] -1.
+swap {1} [8..9] -3.
+swap {1} [11..12] -4.
+swap {1} [15..16] -6.
+
+transitivity {1}
+ { bnd <- pin;
+   a <- sin;
+   (a, cf) <@ SampleEvent.sample(bnd, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   r1 <@ LF_bn_rnd.JR.main(tt, witness);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   _r1 <@ LF_bn_lt.JR.main(tt, (witness,witness));
+   XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   while (!cf) {
+     (a, cf) <@ SampleEvent.sample(bnd, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     r1 <@ LF_bn_rnd.JR.main(tt, witness);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     _r1 <@ LF_bn_lt.JR.main(tt, (witness,witness));
+     XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   }
+   r <- a;
+ }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} )
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} ) => //.
++ move=> /> &2 /#.
++ wp; while(#pre /\ ={a,cf,bnd}).
+   inline SampleEvent.sample.
+   swap {1} [2..3] -1.
+   swap {1} [6..7] -3.
+   swap {1} [9..10] -4.
+   swap {1} [13..14] -6.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   inline LF_bn_lt.JI.main.
+   wp; ecall {1} (bn_lt_cf_ph sin5.`1{1} sin5.`2{1}).
+   inline LF_bn_rnd.JI.main; simplify.
+   sp 0 3.
+   seq 7 1: (#[/:]{~cf{1}}{~cf{2}}{~a{2}}pre /\ a{1}=x{2}).
+    transitivity {1}
+     { a <@ XtrI.bn_rndspec(a); }
+     ( ={a,bnd,pin,sin,XtrR.leakages}
+      ==> ={a,bnd,pin,sin,XtrR.leakages} )
+     ( ={bnd,pin,sin,XtrR.leakages} 
+       /\ i{2}=bnd{2} /\ d{2}=(fun _ => bn_rnd)
+       /\ P{2}=(fun b x=>bn x < bn b)
+      ==> ={bnd,pin,sin,XtrR.leakages} /\ a{1}=x{2}
+       /\ i{2}=bnd{2} /\ d{2}=(fun _ => bn_rnd)
+       /\ P{2}=(fun b x=>bn x < bn b)
+) => //.
+    + by move=> /> &2 /#.
+    + by wp; call bn_rndspec_eq; auto => />.
+    by inline*; auto => /> *.
+   by auto => /> &1 *. 
+  wp; call(: ={XtrR.leakages}); first by sim.
+  wp; call(: ={XtrR.leakages}); first by sim.
+  inline LF_bn_lt.JI.main.
+  wp; ecall {1} (bn_lt_cf_ph sin5.`1{1} sin5.`2{1}).
+  inline SampleEvent.sample.
+  inline LF_bn_rnd.JI.main; simplify.
+  swap {2} 6 -1.
+  seq 9 5: (={bnd,pin,sin,glob XtrR}
+     /\ i{2}=bnd{2}
+     /\ a{1}=x{2}).
+   transitivity {1}
+     { bnd <- pin; a <@ XtrI.bn_rndspec(sin); }
+     ( ={pin,sin,XtrR.leakages}
+      ==> ={a,bnd,pin,sin,XtrR.leakages} )
+     ( ={pin,sin,XtrR.leakages}
+      ==> ={bnd,pin,sin,XtrR.leakages}
+       /\ a{1}=x{2}
+       /\ i{2}=bnd{2} ) => //.
+   + by move=> /> &2 /#.
+   + by wp; call bn_rndspec_eq; auto => />.
+   by inline*; auto => /> *.
+  by auto => /> &1.
+
+transitivity {1}
+ { bnd <- pin;
+   a <- sin;
+   (a, cf) <@ SampleEvent.sampleEv(bnd, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   r1 <@ LF_bn_rnd.JR.main(tt, witness);
+   XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+   _r1 <@ LF_bn_lt.JR.main(tt, (witness,witness));
+   XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   while (!cf) {
+     (a, cf) <@ SampleEvent.sampleEv(bnd, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     r1 <@ LF_bn_rnd.JR.main(tt, witness);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     _r1 <@ LF_bn_lt.JR.main(tt, (witness,witness));
+     XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+   }
+   r <- a;
+ }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} )
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages} ) => //.
++ move=> /> &2 /#.
++ wp; while(#pre /\ ={a,cf,bnd}).
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call EvSwap.sample_sampleEv.
+   by auto => />; smt(BN.bn_rnd_ll).
+  wp; call(: ={XtrR.leakages}); first by sim.
+  wp; call(: ={XtrR.leakages}); first by sim.
+  wp; call EvSwap.sample_sampleEv.
+  by auto => />; smt(BN.bn_rnd_ll).
+
+transitivity {1}
+ { r <@ RSloop.RejLoop(RSampleLoop).loopEager(pin); }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages})
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages}) => //.
++ by move=> /> &2; exists XtrR.leakages{2} pin{2} sin{2} => />.
++ inline RejLoop(RSampleLoop).loopEager.
+  inline SampleEvent.sampleEv.
+  inline RSampleLoop.loop_init RSampleLoop.loop_body.
+  wp; while (={XtrR.leakages} /\ (cf,a,bnd){1}=(b,x,bnd0){2}).
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   by auto.
+  wp; call(: ={XtrR.leakages}); first by sim.
+  wp; call(: ={XtrR.leakages}); first by sim.
+  by auto.
+
+transitivity {1}
+ { r <@ RSloop.RejLoop(RSampleLoop).loopLazy(pin); }
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages})
+ ( ={pin, sin, XtrR.leakages} ==> ={r, XtrR.leakages}) => //.
++ by move=> /> &2; exists XtrR.leakages{2} pin{2} sin{2} => />.
++ call (rejloop_eq RSampleLoop); auto => />.
+
+inline RejLoop(RSampleLoop).loopLazy.
+inline RSampleLoop.loop_init RSampleLoop.loop_body.
+seq 9 18: (={XtrR.leakages} /\ bnd0{1}=pin2{2}).
+ transitivity {1}
+  { bnd0 <- pin;
+    (a, b) <@ SampleEvent.sampleEv(bnd0, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    r10 <@ LF_bn_rnd.JR.main(tt, witness);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    _r10 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+    XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+    while (!b) {
+     (a, b) <@ SampleEvent.sampleEv(bnd0, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     r10 <@ LF_bn_rnd.JR.main(tt, witness);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     _r10 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+     XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+    }
+   }
+   ( ={pin, sin, XtrR.leakages} ==> ={XtrR.leakages} /\ bnd0{1} = pin{2} )
+   ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ pin2{2} = pin{2} ) => //.
+ + by move => /> &2; exists XtrR.leakages{2} pin{2} sin{2} => //.
+ + inline SampleEvent.sampleEv.
+   while(#pre /\ ={b,bnd0} /\ bnd0{2} = pin{2}).
+    wp; call(: ={XtrR.leakages}); first by sim.
+    wp; call(: ={XtrR.leakages}); first by sim.
+    by wp; rnd{2}; auto => /> &2 b b'; smt(dbiased_dcond_ll BN.bn_rnd_ll).
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   by wp; rnd{2}; auto => /> &2 b b';  smt(dbiased_dcond_ll BN.bn_rnd_ll).
+
+ transitivity {1}
+  { bnd0 <- pin;
+    (a, b) <@ SampleEvent.sample(bnd0, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    r10 <@ LF_bn_rnd.JR.main(tt, witness);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    _r10 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+    XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+    while (!b) {
+     (a, b) <@ SampleEvent.sample(bnd0, (fun _ => bn_rnd), fun bnd x => bn x < bn bnd);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     r10 <@ LF_bn_rnd.JR.main(tt, witness);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     _r10 <@ LF_bn_lt.JR.main(tt, (witness, witness));
+     XtrR.leakages <- LeakCond (!b) :: LeakAddr [] :: XtrR.leakages;
+    }
+   }
+   ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ bnd0{1} = pin{2} )
+   ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ pin2{2}=pin{2} ) => //.
+ + by move => /> &2; exists XtrR.leakages{2} pin{2} sin{2} => //.
+ + symmetry. 
+   while(#pre /\ ={b,bnd0} /\ bnd0{2} = pin{2}).
+    wp; call(: ={XtrR.leakages}); first by sim.
+    wp; call(: ={XtrR.leakages}); first by sim.
+    wp; call EvSwap.sample_sampleEv.
+    auto => />; smt(BN.bn_rnd_ll).
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call(: ={XtrR.leakages}); first by sim.
+   wp; call EvSwap.sample_sampleEv.
+   by auto => />; smt(BN.bn_rnd_ll).
+
+ inline SampleEvent.sample.
+ transitivity {2}
+  { XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    a <@ LF_bn_rnd.JR.main(tt,sin);
+    XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+    cf <@ LF_bn_lt.JR.main(tt, (a,pin));
+    XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+    while (!cf) {
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     a <@ LF_bn_rnd.JR.main(tt,sin);
+     XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+     cf <@ LF_bn_lt.JR.main(tt, (a,pin));
+     XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+    }
+   }
+   ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ bnd0{1} = pin{2} )
+   ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ pin2{2} = pin{2} ) => //.
+ + by move => /> &2; exists XtrR.leakages{2} pin{2} sin{2} => //.
+ + transitivity {2}
+    { XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+      a <@ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main(tt,sin,witness);
+      XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+      cf <@ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main(tt, (a,pin), (witness,witness));
+      XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+      while (!cf) {
+       XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+       a <@ LF_bn_rnd.Meta.SimR(LF_bn_rnd.JI, LF_bn_rnd.JR).main(tt,sin,witness);
+       XtrR.leakages <- LeakAddr [] :: XtrR.leakages;
+       cf <@ LF_bn_lt.Meta.SimR(LF_bn_lt.JI, LF_bn_lt.JR).main(tt, (a,pin), (witness,witness));
+       XtrR.leakages <- LeakCond (!cf) :: LeakAddr [] :: XtrR.leakages;
+      }
+     }
+     ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} /\ bnd0{1} = pin{2} )
+     ( ={pin, sin, XtrR.leakages} ==> ={pin, XtrR.leakages} ) => //.
+   - by move => /> &2; exists XtrR.leakages{2} pin{2} sin{2} => //.
+     inline LF_bn_rnd.Meta.SimR LF_bn_lt.Meta.SimR.
+     inline LF_bn_rnd.JI.main LF_bn_lt.JI.main.
+     while ((b,bnd0){1}=(cf,pin){2} /\ ={XtrR.leakages} ).
+      swap {2} [7..10] -3.
+      swap {2} [16..20] -2.
+      swap {2} [12..18] -3.
+      swap {2} 1 14.
+      wp; call(: ={XtrR.leakages}); first by sim.
+      wp; call(: ={XtrR.leakages}); first by sim.
+      wp; ecall {2} (bn_lt_cf_ph sin10{2}.`1 sin10{2}.`2).
+      simplify.
+      wp 4 6.
+      transitivity {2} { a <@ XtrI.bn_rndspec(sin); }
+        ( ={glob XtrR} /\ (b,bnd0){1}=(cf,pin){2} /\ !cf{2}
+         ==> ={glob XtrR} /\ (b,bnd0){1}=(cf,pin){2} /\ !cf{2}
+            /\ (x1,i0,d0,P0){1}=(a{2},pin{2},fun _=>bn_rnd,fun b x=>bn x < bn b) )
+        ( ={pin,sin, cf, glob XtrR} ==> ={a,cf,pin,sin,glob XtrR} 
+) => //.
+      + by move=> /> /#.
+      + by inline*; auto => />.
+      + by symmetry; wp; call bn_rndspec_eq; auto => />.
+     swap {2} [6..10] -2.
+     swap {2} [16..20] -2.
+     swap {2} [12..18] -3.
+     swap {2} 1 14.
+     wp; call(: ={XtrR.leakages}); first by sim.
+     wp; call(: ={XtrR.leakages}); first by sim.
+     wp; ecall {2} (bn_lt_cf_ph sin8{2}.`1 sin8{2}.`2).
+     simplify.
+     wp 5 7.
+      transitivity {2} { a <@ XtrI.bn_rndspec(sin); }
+        ( ={pin,sin,glob XtrR} 
+         ==> ={pin,sin,glob XtrR}
+            /\ (x0,bnd0,i,d,P){1}
+               =(a{2},pin{2},pin{2},fun _=>bn_rnd,fun b x=>bn x < bn b) )
+        ( ={pin,sin, glob XtrR} ==> ={a,pin,sin,glob XtrR} 
+) => //.
+     + by move=> /> /#.
+     + by inline*; auto => />.
+     + by symmetry; wp; call bn_rndspec_eq; auto => />.
+   symmetry.
+   while (#pre /\ ={cf}).
+    wp; call LF_bn_lt.
+    by wp; call LF_bn_rnd; auto.
+   wp; call LF_bn_lt.
+   by wp; call LF_bn_rnd; auto.
+ inline LF_bn_rnd.JR.main LF_bn_lt.JR.main.
+ wp; while(#pre /\ ={a,cf} /\ bnd{2}=pin{2}).
+  wp; call(: ={XtrR.leakages}); first by sim.
+  by inline*; auto => />.
+ wp; call(: ={XtrR.leakages}); first by sim.
+ by inline*; auto => />.
+wp.
+
+transitivity {2}
+ { r2 <@ XtrI.bn_rsamplespec(sin2,pin2); }
+ ( ={XtrR.leakages} /\ bnd0{1} = pin2{2} ==> x{1} = r2{2} /\ ={XtrR.leakages} )
+ ( ={pin2,XtrR.leakages} ==> ={r2, XtrR.leakages}) => //.
++ by move=> /> &2; exists XtrR.leakages{2} pin2{2}.
++ inline*; wp.
+  rnd (bnk nlimbs) bn_ofint.
+  auto => /> &2; split.
+   move=> x; rewrite supp_dinter => Hx.
+   rewrite bn_ofintK modz_small; smt(bnk_cmp).
+  move => H1; split.
+   move=> x; rewrite supp_dinter => Hx.
+   rewrite -bn_rnd_bndE /bn_rnd_bnd dmap1E.
+   apply mu_eq_support => y.
+   rewrite supp_dinter => Hy.
+   rewrite /pred1 /(\o) /= eq_iff => *; split => // E.
+   rewrite (:y=y%%bn_modulus) 1:modz_small //; first smt(bnk_cmp).
+   rewrite (:x=x%%bn_modulus) 1:modz_small //; first smt(bnk_cmp).
+   by rewrite -!bn_ofintK E.
+  move=> H2 x; rewrite dcond_supp /= => [[H3 H4]].
+  rewrite supp_dinter; smt(bnk_cmp bnK).
+
+by symmetry; call bn_rsample1_eq; auto => />.
+qed.
+
+(** The actual LF property follows from a generic
+ property formalised in LeakageFreeness_Analysis.        *)
+lemma bn_rsample_LF:
+ equiv[ LF_bn_rsample.JR.main  ~  LF_bn_rsample.Meta.SimR(LF_bn_rsample.JI, LF_bn_rsample.JR).main :
+  ={pin, sin, glob LF_bn_rsample.JR} ==> ={res, glob LF_bn_rsample.JR}].
+proof.
+apply (LF_bn_rsample.Meta.pinll_CT_CC_LF LF_bn_rsample.JR LF_bn_rsample.JI).
++ by apply LF_bn_rsample.stateless_JI.
++ by apply LF_bn_rsample.proj_JR_JI.
++ by apply LF_bn_rsample.prMuE.
++ exists (fun bnd => bn bnd <> 0) => /> _bnd.
+  case: (bn _bnd=0) => C /=; proc; simplify.
+   hoare; inline XtrI.bn_rsample1.
+   wp; while(bnd=_bnd /\ cf = bnk nlimbs a < bnk nlimbs _bnd).
+    ecall (bn_lt_cf_h a bnd).
+    by inline*; auto => /> &m.
+   ecall (bn_lt_cf_h a bnd).
+   by inline*; auto => &m -> a Ha r;  smt(bnk_cmp).
+  call (bn_rsample1_ll); auto => />.
+  smt(bnk_cmp).
+ proc.
+ by ecall (bn_rsample1_ct).
+by apply CC_bn_rsample.
+qed.
+
+
