@@ -29,7 +29,7 @@ EASYCRYPT ?= easycrypt
 ECARGS ?=
 
 EASYCRYPT_REVISION = a214a56
-JASMIN_VERSION = 2023.06.1
+JASMIN_VERSION = 2023.06.4
 
 .DELETE_ON_ERROR :
 
@@ -57,10 +57,9 @@ ec_clean:
 
 EXTRACTED_FUNCTIONS = -ec random_bit_naive -ec bn_rsample -ec bn_rsample_i -ec bn_rsample1 -ec random_bit
 
-# extract_all $(EXTRACTED_FILES) : src/bn_rsample.jazz Makefile
-# 	$(JASMIN)     $(EXTRACTED_FUNCTIONS) -oec proof/jasmin_extracts/W64_RejectionSamplingExtract.ec  -oecarray proof/jasmin_extracts src/bn_rsample.jazz
-# 	$(JASMIN) -CT $(EXTRACTED_FUNCTIONS) -oec proof/jasmin_extracts/W64_RejectionSamplingExtract_ct.ec -oecarray proof/jasmin_extracts src/bn_rsample.jazz
-
+extract_all $(EXTRACTED_FILES) : src/bn_rsample.jazz Makefile
+	$(JASMIN)     $(EXTRACTED_FUNCTIONS) -oec proof/jasmin_extracts/W64_RejectionSamplingExtract.ec  -oecarray proof/jasmin_extracts src/bn_rsample.jazz
+	$(JASMIN) -CT $(EXTRACTED_FUNCTIONS) -oec proof/jasmin_extracts/W64_RejectionSamplingExtract_ct.ec -oecarray proof/jasmin_extracts src/bn_rsample.jazz
 
 compile_and_run :
 	make -C src/example JASMIN_FLAGS='-nowarning -wlea -w_ -winsertarraycopy -wduplicatevar -wunusedvar' run

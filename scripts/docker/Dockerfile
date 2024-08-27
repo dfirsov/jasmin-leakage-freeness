@@ -25,7 +25,7 @@ FROM debian:stable-20240812-slim
 ARG USER=jasminlf
 
 # gitlab://https.com/jasmin-lang/jasmin-compiler/-/tree/v2024.07.0
-ARG JASMIN_COMMIT=8524bf0
+ARG JASMIN_RELEASE=v2023.06.4
 ARG EASYCRYPT_COMMIT=a214a56
 
 SHELL ["/bin/bash", "-c"]
@@ -57,10 +57,9 @@ RUN curl -L https://nixos.org/nix/install > nix-install && \
 
 # jasmin ######################################################################
 
-RUN git clone https://gitlab.com/jasmin-lang/jasmin-compiler.git jasmin_$JASMIN_COMMIT
-RUN cd jasmin_$JASMIN_COMMIT/ && \
-    git checkout $JASMIN_COMMIT && \
-    cd compiler/ && \
+RUN wget https://github.com/jasmin-lang/jasmin/releases/download/$JASMIN_RELEASE/jasmin-compiler-$JASMIN_RELEASE.tar.bz2 && \
+    tar -xf jasmin-compiler-$JASMIN_RELEASE.tar.bz2 && \
+    cd jasmin-compiler-$JASMIN_RELEASE/compiler/ && \
     USER=$USER source /home/$USER/.nix-profile/etc/profile.d/nix.sh && \
     nix-channel --update && \
     nix-shell --command "make" && \
