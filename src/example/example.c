@@ -21,11 +21,11 @@ int main(void)
   bignum random_number_p;
 
   __bn_rsample(random_number_p);
-  printf("\Random number:\n");  
+  printf("Random number:\n");
   print(random_number_p);
 
   __bn_rsample1(random_number_p);
-  printf("\Random number:\n");  
+  printf("Random number:\n");
   print(random_number_p);
 
 

@@ -63,8 +63,8 @@ EXTRACTED_FUNCTIONS = -ec random_bit_naive -ec bn_rsample -ec bn_rsample_i -ec b
 
 
 compile_and_run :
-	$(info This might take a while...)
-	make -C src/example run
+	make -C src/example JASMIN_FLAGS='-nowarning -wlea -w_ -winsertarraycopy -wduplicatevar -wunusedvar' run
 
-
+clean: ec_clean
+	make -C src/example clean
 

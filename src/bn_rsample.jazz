@@ -133,7 +133,7 @@ inline fn random_bit() -> reg u8
 /* sample uniformly at random an element from interval [0..byte_z-1], also returns the loop counter */
 inline fn bn_rsample_i(stack u64[nlimbs] byte_z) -> (inline int, stack u64[nlimbs])
 {
-  stack u64[nlimbs] byte_q byte_p r;
+  stack u64[nlimbs] byte_q byte_p;
   reg ptr u64[nlimbs] _byte_p;
   reg bool cf;
   inline int i;
@@ -154,7 +154,7 @@ inline fn bn_rsample_i(stack u64[nlimbs] byte_z) -> (inline int, stack u64[nlimb
 /* same as bn_rsample_i, but does not return the loop counter */
 inline fn bn_rsample(stack u64[nlimbs] byte_z) -> (stack u64[nlimbs])
 {
-  stack u64[nlimbs] byte_q byte_p r;
+  stack u64[nlimbs] byte_q byte_p;
   reg ptr u64[nlimbs] _byte_p;
   reg bool cf;
   inline int i;
