@@ -1,12 +1,12 @@
 # Intructions on how to build jasmin-leakage-free image (from the jasmin-leakage-freeness/scripts/docker directory):
 # $ docker build -t jasmin-leakage-free:latest -f Dockerfile ../../
-# $ docker run --rm -it jasmin-leakage-free bash
-# $ make
+# $ docker run --rm -it jasmin-leakage-free
+# $ make -j$(nproc)
 # $ make compile_and_run
 # $ exit
 
 # Notes:
-# - the command `make` checks the proofs
+# - the command `make` checks the proofs; using 8 cores (assuming modern desktop CPU) it is expected that checking the proofs takes around 1.5 minutes to complete; Note: to run the all proofs again (without modifying the EasyCrypt files), you can run `make ec_clean`.
 # - the command `make compile_and_run` compiles and runs the example code
 # - the command `exit` exits the docker container; because flag `--rm` was provided to `docker run`, it is expected that the container is removed after exiting
 
@@ -100,4 +100,8 @@ RUN eval $(opam env) && \
 
 COPY --chown=$USER:$USER . /home/$USER/jasmin-leakage-free
 WORKDIR /home/$USER/jasmin-leakage-free
+
+# starting point ####################################################################
+RUN echo 'eval $(opam env)' >> /home/$USER/.bashrc
+CMD ["bash"]
 
