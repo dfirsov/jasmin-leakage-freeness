@@ -20,8 +20,8 @@ The EasyCrypt config (`~/.config/easycrypt/easycrypt.conf`) must contain Jasmin 
 * `constants.jazz` defines Jasmin's global variable `bn_glob_p` to be equal to a 2048-bit safe prime from RFC 352 which is used for testing.
 * `bn_rsample.jazz` implements uniform sampling from `[0..bn_glob_p-1]` interval.
 * `bn_rsample.h` C-interface of external calls for the uniform sampling entry points.
-* `example/example.c` C-wrapper which links the rejection sampling function with systemcall providers.
-* `example/syscalls/` (random and pseudo-random) implementation of Jasmin's `#randombytes` systemcall.
+* `example/example.c` C-wrapper which links the rejection sampling function with system call providers.
+* `example/syscalls/` (random and pseudo-random) implementation of Jasmin's `#randombytes` system call.
 
 ### `proof/`
 * `LeakageFreeness_Analysis.ec` - analysis of leakage-freeness definitions (see the paper).
@@ -42,3 +42,15 @@ The EasyCrypt config (`~/.config/easycrypt/easycrypt.conf`) must contain Jasmin 
   - `leakage_freeness_prhl/` pRHL proof of leakage-freeness of rejection sampling.
 * `jasmin_extracts/` folder which contains EasyCrypt code extracted by Jasmin compiler.
 * `eclib/` Jasmin's library for EasyCrypt.
+
+###  Index of paper's results:
+
+#### `LeakageFreeness_Analysis.ec`
+
+Notice that the formalization considers the general case of possibly divergent procedures -- see comment on line 99 concerning definitions `LF` and `GenLF`.
+
+* Proposition 3.1 1) - `GenLF_CT`
+* Proposition 3.1 2) - `CT_det_GenL`
+* Proposition 3.1 3) - `GenLF_LFdef` and `LFdef_LF`
+* Proposition 3.1 4) - `CT_pr`
+* Proposition 3.2 - `Compositionality`

@@ -74,19 +74,19 @@ module type JasminProcWrapper = {
  [JI] and [JR], it establishes the equivalence
  of the concrete (leaky) implementation with
  abstract (pure) implementation combined with
- simulated leakage. Both sides of the equivalence
- are captured by the following modules [SimR]
- and [RSim].                                *)
+ simulated leakage.                            *)
  
 
 
 (** [SimR] denotes the Simulated side of the
- captured property (where leakage is simulated
- resorting to the real implementation on
- arbitrary secret inputs).
+ property (where leakage is simulated resorting
+ to the real implementation on arbitrary secret
+ inputs).
+
  Leakage-Freeness (LF) is established by enforcing
  the equivalence:
-        JR.main ~ SimR(JI,JR).main                    *)
+        JR.main ~ SimR(JI,JR).main                    
+*)
 module SimR(JI: JasminProcWrapper, JR: JasminProcWrapper) = {
  proc main(pin: pin_t, sin sin': sin_t): out_t = {
   var _r, r;
@@ -102,7 +102,10 @@ module SimR(JI: JasminProcWrapper, JR: JasminProcWrapper) = {
  side of (the Real, or leaky, implementation) by a (possibly
  faulty) dummy simulator. This is a rather  artificial
  (technical) artifact to make the LF-property robust on
- possibly diverging programs (what we call GenLF property). *)
+ possibly diverging programs (what we call GenLF property).
+
+ [RSim] is then the left-hand side of the GenLF property. 
+ *)
 module RSim(JI: JasminProcWrapper)(JR: JasminProcWrapper) = {
  proc main(pin: pin_t, sin: sin_t): out_t = {
   var _r, r;
@@ -114,9 +117,10 @@ module RSim(JI: JasminProcWrapper)(JR: JasminProcWrapper) = {
 }.
 
 (** An apparently stronger variant of GenLF-property
- is based on a more general variant of [RSim]. We call this property GenLFplus and, as
- we will see later, it turns out to be provably
- equivalent to the former characterization.    *)
+ is based on a more general variant of [RSim]. We call
+ this property GenLFplus and, as we will see later, it
+ turns out to be provably equivalent to the former
+ characterization.    *)
 module RSim'(JI: JasminProcWrapper)(JR: JasminProcWrapper) = {
  proc main(pin: pin_t, sin sin': sin_t): out_t = {
   var _r, r;
@@ -166,7 +170,7 @@ lemma JI_pr_m_m' P &m &m' _pin _sin:
  Pr[ JI.main(_pin,_sin) @ &m : P res ]
  = Pr[ JI.main(_pin,_sin) @ &m' : P res ].
 proof.
-byequiv (: _ ==> ={res}); simplify => //.
+byequiv (: _ ==> ={res}); simplify; last 2 done. 
 by sim => /> *; apply stateless_JI.
 qed.
 
@@ -176,7 +180,7 @@ lemma JR_pr_m_m' P &m &m' _pin _sin:
  = Pr[ JR.main(_pin,_sin) @ &m' : P (res,glob JR)].
 proof.
 move=> E_m_m'.
-byequiv (: ={pin,sin,glob JR} /\ pin{2}=_pin /\ sin{2}=_sin /\ (glob JR){1}=(glob JR){m} /\ (glob JR){2}=(glob JR){m'} ==> ={res, glob JR}); simplify => //.
+byequiv (: ={pin,sin,glob JR} /\ pin{2}=_pin /\ sin{2}=_sin /\ (glob JR){1}=(glob JR){m} /\ (glob JR){2}=(glob JR){m'} ==> ={res, glob JR}); simplify; last 2 done.
 by sim => /> *.
 qed.
 
@@ -185,14 +189,14 @@ lemma RSim_pr &m _pin _sin _rl:
  = Pr[JI.main(_pin, _sin) @ &m : true]
    * Pr[JR.main(_pin, _sin) @ &m : (res,glob JR)=_rl].
 proof.
-byphoare (: pin=_pin /\ sin=_sin /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl) => //.
+byphoare (: pin=_pin /\ sin=_sin /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl); last 2 done. 
 proc; simplify.
 seq 1: (true)
        Pr[JI.main(_pin, _sin) @ &m : true]
        Pr[JR.main(_pin, _sin) @ &m : (res,glob JR)=_rl]
        _ 0%r
-       (pin=_pin /\ sin=_sin /\ (glob JR) = (glob JR){m}) => //.
-+ by call (:true) => //.
+       (pin=_pin /\ sin=_sin /\ (glob JR) = (glob JR){m}); last 2 done. 
++ by call (:true); auto => />.
 + call (: pin = _pin /\ sin = _sin /\ (glob JR)=(glob JR){m} ==> true).
    bypr; move=> /> &m' Hglob.
    by apply (JI_pr_m_m' predT).
@@ -200,8 +204,8 @@ seq 1: (true)
 + call (: pin=_pin /\ sin=_sin /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl); last first.
    by auto => /> /#.
   bypr; move=> &m' [->] [->] Hglob.
-  byequiv => //.
-  proc* => //; simplify.
+  byequiv; last 2 done.
+  proc*; simplify.
   by call (:true); auto => /> * /#.
 qed.
 
@@ -210,14 +214,14 @@ lemma RSim'_pr &m _pin _sin _sin' _rl:
  = Pr[JI.main(_pin, _sin') @ &m : true]
    * Pr[JR.main(_pin, _sin) @ &m : (res,glob JR)=_rl].
 proof.
-byphoare (: pin=_pin /\ sin=_sin /\ sin'=_sin' /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl) => //.
+byphoare (: pin=_pin /\ sin=_sin /\ sin'=_sin' /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl); last 2 done.
 proc; simplify.
 seq 1: (true)
        Pr[JI.main(_pin, _sin') @ &m : true]
        Pr[JR.main(_pin, _sin) @ &m : (res,glob JR)=_rl]
        _ 0%r
-       (pin=_pin /\ sin=_sin /\ (glob JR) = (glob JR){m}) => //.
-+ by call (:true) => //.
+       (pin=_pin /\ sin=_sin /\ (glob JR) = (glob JR){m}); last 2 done.
++ by call (:true); auto => />.
 + call (: pin = _pin /\ sin = _sin' /\ (glob JR)=(glob JR){m} ==> true).
    bypr; move=> /> &m' Hglob.
    by apply (JI_pr_m_m' predT).
@@ -225,8 +229,8 @@ seq 1: (true)
 + call (: pin=_pin /\ sin=_sin /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl); last first.
    by auto => /> /#.
   bypr; move=> &m' [->] [->] Hglob.
-  byequiv => //.
-  proc* => //; simplify.
+  byequiv; last 2 done. 
+  proc*; simplify.
   by call (:true); auto => /> * /#.
 qed.
 
@@ -235,18 +239,18 @@ lemma SimR_pr _pin _sin _sin' &m _rl:
  = Pr[JR.main(_pin, _sin') @ &m : (glob JR)=_rl.`2]
    * Pr[JI.main(_pin, _sin) @ &m : res = _rl.`1].
 proof.
-byphoare (: pin=_pin /\ sin=_sin /\ sin'=_sin' /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl) => //.
+byphoare (: pin=_pin /\ sin=_sin /\ sin'=_sin' /\ (glob JR)=(glob JR){m} ==> (res,glob JR)=_rl); last 2 done.
 proc; simplify.
 seq 1: ((glob JR)=_rl.`2)
        Pr[JR.main(_pin, _sin') @ &m : (glob JR)=_rl.`2]
        Pr[JI.main(_pin, _sin) @ &m : res=_rl.`1]
        _ 0%r
-       (pin=_pin /\ sin=_sin /\ sin'=_sin') => //.
-+ by call (:true) => //.
+       (pin=_pin /\ sin=_sin /\ sin'=_sin'); last done.
++ by call (:true); auto => />.
 + call (: pin = _pin /\ sin = _sin' /\ (glob JR) = (glob JR){m} ==> (glob JR)=_rl.`2).
    bypr; move=> &m' [->] [->] Hglob.
-   byequiv => //.
-   proc* => //.
+   byequiv; last 2 done.
+   proc*.
    by call (:true); auto => />.
 + by auto.
 + call (: pin=_pin /\ sin=_sin ==> res=_rl.`1); last by auto => /> /#.
@@ -270,13 +274,14 @@ lemma GenLF_pr:
 proof.
 split.
  move => CT_J _pin _sin _sin' &m _rl.
- by rewrite -RSim_pr mulrC -SimR_pr; byequiv CT_J => //=.
+ by rewrite -RSim_pr mulrC -SimR_pr; byequiv CT_J => /=.
 move=> CTpr.
-bypr (res,glob JR){1} (res,glob JR){2} => //.
+bypr (res,glob JR){1} (res,glob JR){2}; first done.
 move => &1 &2 _rl [->] [->] Eglob.
 rewrite /= RSim_pr SimR_pr (CTpr pin{2} sin{2} sin'{2} &1 _rl).
-rewrite (JI_pr_m_m' (pred1 _rl.`1) &1 &2) mulrC; congr => //.
-by rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_rl.`2) &1 &2).
+rewrite (JI_pr_m_m' (pred1 _rl.`1) &1 &2) mulrC; congr.
+ by rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_rl.`2) &1 &2).
+done.
 qed.
 
 lemma GenLFplus_pr:
@@ -293,13 +298,14 @@ lemma GenLFplus_pr:
 proof.
 split.
  move => CT_J _pin _sin _sin1' _sin2' &m _rl.
- by rewrite -RSim'_pr mulrC -SimR_pr; byequiv CT_J => //=.
+ by rewrite -RSim'_pr mulrC -SimR_pr; byequiv CT_J => /=.
 move=> CTpr.
-bypr (res,glob JR){1} (res,glob JR){2} => //.
+bypr (res,glob JR){1} (res,glob JR){2}; first done.
 move => &1 &2 _rl [->] [->] Eglob.
 rewrite /= RSim'_pr SimR_pr (CTpr pin{2} sin{2} sin'{1} sin'{2} &1 _rl).
-rewrite (JI_pr_m_m' (pred1 _rl.`1) &1 &2) mulrC; congr => //.
-by rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_rl.`2) &1 &2).
+rewrite (JI_pr_m_m' (pred1 _rl.`1) &1 &2) mulrC; congr.
+ by rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_rl.`2) &1 &2).
+done.
 qed.
 
 (** OPSEM lemmas
@@ -307,7 +313,7 @@ qed.
  level with the underlying semantic distributions.                                        *)
 lemma JI_opsem1E &m:
  exists d, forall _pin _sin &m' r,
-  Pr[JI.main(_pin, _sin) @ &m' : res=r]
+  Pr[JI.main(_pin, _sin) @ &m : res=r]
   = mu1 (d _pin _sin) r.
 proof.
 pose ff := fun (pin : pin_t) (sin : sin_t) (r : out_t)
@@ -315,12 +321,12 @@ pose ff := fun (pin : pin_t) (sin : sin_t) (r : out_t)
 pose df := fun (pin : pin_t) (sin : sin_t) =>
  mk (fun (x : out_t) => ff pin sin x).
 exists df => pin sin &m' r.
-rewrite -(JI_pr_m_m' (pred1 r) &m) /df muK /ff //=.
+rewrite -(JI_pr_m_m' (pred1 r) &m) /df muK /ff /= 2://.
 apply Distr => /=; first smt(mu_bounded).
 move => l lU.
 have ->: (StdBigop.Bigreal.BRA.big predT (fun (x : out_t) => Pr[JI.main(pin, sin) @ &m : res = x]) l)
  = Pr[JI.main(pin, sin) @ &m : List.(\in) res l].
- rewrite Pr [muE] (RealSeries.sumE_fin _ l) //=.
+ rewrite Pr [muE] (RealSeries.sumE_fin _ l) /= 1://.
   move=> x; apply contraR => Hx.
   apply (eq_trans _ Pr[JI.main(pin, sin) @ &m : false]).
    by rewrite Pr [mu_eq] /#.
@@ -332,15 +338,15 @@ qed.
 
 lemma JI_opsemE &m:
  exists d, forall P _pin _sin &m',
-  Pr[JI.main(_pin, _sin) @ &m' : P res]
+  Pr[JI.main(_pin, _sin) @ &m : P res]
   = mu (d _pin _sin) P.
 proof.
 have [dI EdI] := JI_opsem1E &m.
 exists dI => P pin sin &m'.
 rewrite Pr [muE] muE; apply RealSeries.eq_sum => x /=.
 case: (P x) => C.
- by rewrite -(EdI _ _ &m') // Pr [mu_eq] /#.
-apply (eq_trans _ Pr[JI.main(pin, sin) @ &m' : false]).
+ by rewrite -(EdI _ _ &m') Pr [mu_eq] /#.
+apply (eq_trans _ Pr[JI.main(pin, sin) @ &m : false]).
  by rewrite Pr [mu_eq] /#.
 by rewrite Pr [mu_false].
 qed.
@@ -356,20 +362,20 @@ declare axiom prMuE P pin sin &m:
 lemma JR_opsem1E &m:
  exists d, forall _pin _sin &m' (_rl:_*_),
   (glob JR){m} = (glob JR){m'} =>
-  Pr[JR.main(_pin, _sin) @ &m' : (res,glob JR)=_rl]
+  Pr[JR.main(_pin, _sin) @ &m : (res,glob JR)=_rl]
   = mu1 (d _pin _sin) _rl.
 proof.
 pose ff :=
  fun pin sin (rl:_*_) => Pr[JR.main(pin, sin) @ &m : (res,glob JR)=rl].
 pose df := fun pin sin => mk (fun x => ff pin sin x).
 exists df => pin sin &m' rl Hmm'.
-rewrite (JR_pr_m_m' (pred1 rl) &m' &m) 1:/# /df muK /ff //=.
+rewrite /df muK /ff /= 2://.
 apply Distr => /=; first smt(mu_bounded).
 move => xl xlU. 
 have ->: (StdBigop.Bigreal.BRA.big predT (fun x => Pr[JR.main(pin, sin) @ &m : (res,glob JR) = x]) xl)
  = Pr[JR.main(pin, sin) @ &m : List.(\in) (res,glob JR) xl].
  rewrite (prMuE (fun rl=>List.(\in) rl xl)%List _ _ &m).
- rewrite (RealSeries.sumE_fin _ xl) //=.
+ rewrite (RealSeries.sumE_fin _ xl) /= 1://.
   move=> x; apply contraR => Hx.
   apply (eq_trans _ Pr[JR.main(pin, sin) @ &m : false]).
    by rewrite Pr [mu_eq] /#.
@@ -382,7 +388,7 @@ qed.
 lemma JR_opsemE &m:
  exists d, forall P _pin _sin &m',
   (glob JR){m} = (glob JR){m'} =>
-  Pr[JR.main(_pin, _sin) @ &m' : P (res,glob JR)]
+  Pr[JR.main(_pin, _sin) @ &m : P (res,glob JR)]
   = mu (d _pin _sin) P.
 proof.
 have [dR EdR] := JR_opsem1E &m.
@@ -390,17 +396,17 @@ exists dR => P pin sin &m' Hmm'.
 rewrite (prMuE P) muE.
 apply RealSeries.eq_sum => x /=.
 case: (P x) => C.
- by rewrite -(EdR _ _ &m') // Pr [mu_eq] /#.
-apply (eq_trans _ Pr[JR.main(pin, sin) @ &m' : false]).
+ by rewrite -(EdR _ _ &m') 1:// Pr [mu_eq] /#.
+apply (eq_trans _ Pr[JR.main(pin, sin) @ &m : false]).
  by rewrite Pr [mu_eq] /#.
 by rewrite Pr [mu_false].
 qed.
 
-lemma nosmt diverg_lemma pin sin &m:
+lemma diverg_lemma pin sin &m:
  (forall x, Pr[JR.main(pin, sin) @ &m : (res,glob JR)=x] = 0%r)
  => Pr[JR.main(pin, sin) @ &m : true] = 0%r.
 proof.
-move=> eq0_pr; rewrite (prMuE predT) /predT /= RealSeries.sum0_eq //.
+move=> eq0_pr; rewrite (prMuE predT) /predT /= RealSeries.sum0_eq 2://.
 by move=> x />; rewrite -(eq0_pr x) Pr [mu_eq] /#.
 qed.
 
@@ -428,7 +434,7 @@ have {H}H: forall _rl,
  rewrite (JI_JR_prE predT) /predT /=.
  have: Pr[JR.main(_pin, _sin) @ &m : (res,glob JR) = _rl] <= Pr[JR.main(_pin, _sin) @ &m : true] by smt(mu_sub).
  smt(mu_bounded).
-rewrite (prMuE predT) RealSeries.sum0_eq /predT //= => [[r l]/=].
+rewrite (prMuE predT) RealSeries.sum0_eq /predT 2:// /= => [[r l]/=].
 by move: (H (r,l)) => /#.
 qed.
 
@@ -444,11 +450,11 @@ lemma CT_pr:
 proof.
 split.
  move => ct_J _pin _sin _sin' &m _l.
- by byequiv ct_J => // /#.
+ by byequiv ct_J => /#.
 move=> ctpr.
-bypr (glob JR){1} (glob JR){2} => //.
+bypr (glob JR){1} (glob JR){2}; first done.
 move => &1 &2 _l [-> E].
-rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_l) &1 &2) //=.
+rewrite (JR_pr_m_m' (fun x:_*_=>x.`2=_l) &1 &2) 1:// /=.
 by apply ctpr.
 qed.
 
@@ -518,12 +524,12 @@ proof.
 move => /CT_pr Hct _pin _sin _sin' &m.
 have [dR HdR]:= JR_opsemE &m.
 rewrite !(JI_JR_prE predT) /predT /=.
-rewrite (HdR predT _ _ &m) //.
-rewrite (HdR predT _ _ &m) //.
+rewrite (HdR predT _ _ &m) 1://.
+rewrite (HdR predT _ _ &m) 1://.
 have: dsnd (dR _pin _sin) = dsnd (dR _pin _sin').
  rewrite eq_distr => l.
  rewrite !dmap1E /pred1 /(\o) /=.
- rewrite -(HdR _ _ _ &m) // -(HdR _ _ _ &m) //=.
+ rewrite -(HdR _ _ _ &m) 1:// -(HdR _ _ _ &m) 1:// /=.
  by apply Hct.
 smt(weight_dmap).
 qed.
@@ -552,7 +558,7 @@ pose f := fun pin l =>
 exists f => pin sin &m [r l] Eg @/f /=.
 rewrite GenLF_pr in CT.
 have {CT}/=CT:= (CT pin sin witness &m (r,l)).
-rewrite -(JR_pr_m_m' (fun x:_*_=>x.`2=l) &m &m') //=.
+rewrite -(JR_pr_m_m' (fun x:_*_=>x.`2=l) &m &m') 1:// /=.
 rewrite -(JI_pr_m_m' predT &m).
 rewrite -!(JI_JR_prE (pred1 r)) /pred1 /= => Hw.
 rewrite -(E pin sin witness); field CT;
@@ -567,8 +573,6 @@ import RealOrder.
 require import List StdBigop. 
 
 import Bigreal.BRA.
-
-
 
 lemma mleakP &m pin sin r f:
  (f pin = fun l => Pr[ JR.main(pin,sin) @ &m : (res, glob JR)=(r,l) ] / Pr[ JR.main(pin,sin) @ &m : res=r ])
@@ -589,19 +593,19 @@ have Hll': uniq ll'.
 have ->: ll=undup (unzip1 ll').
  by rewrite undup_id -map_comp /(\o) /= map_id.
 rewrite -(eq_big_seq (fun l=>big predT (fun xy:_*_=>Pr[JR.main(pin, sin) @ &m : res = xy.`2 /\ (glob JR) = xy.`1]) (filter (fun xy:_*_=>xy.`1=l) ll'))).
- move=> l; rewrite undup_id /ll' -map_comp /(\o) map_id //=.
+ move=> l; rewrite undup_id /ll' -map_comp /(\o) map_id 1:// /=.
  move => Hl.
  have ->: filter (fun xy:_*_=>xy.`1=l) ll' = [ (l,r) ].
   rewrite /ll' filter_map /preim /=.
-  by rewrite filter_pred1 count_uniq_mem // Hl b2i1 nseq1 /=.
+  by rewrite filter_pred1 count_uniq_mem 1:// Hl b2i1 nseq1 /=.
  by rewrite big_cons big_nil ifT 1:/#.
-rewrite -big_pair // big_pair_pswap.
+rewrite -big_pair 1:// big_pair_pswap.
 rewrite /predT /(\o) /=.
 pose X:= big _ _ _.
 have ->: X=Pr[JR.main(pin, sin) @ &m : res = r /\ (glob JR)\in ll].
  rewrite (prMuE (fun xy:_*_=>xy.`1=r /\ xy.`2\in ll) _ _ &m).
  rewrite /X.
- rewrite (RealSeries.sumE_fin _ (map pswap ll')) //=.
+ rewrite (RealSeries.sumE_fin _ (map pswap ll')) /=.
    by rewrite -map_comp map_inj_in_uniq /#.
   move=> [a b] /=.
   rewrite /ll' /pswap -map_comp /(\o)/=.
@@ -648,18 +652,18 @@ have EdR:forall pin sin, dR pin sin = DR pin sin.
  rewrite muK.
   apply (mleakP &m _pin _sin r' _).
   apply fun_ext => x.
-  by rewrite -(Hfl _pin _sin &m (r',x) _) //.
- rewrite -(HdR _ _ _ &m) //.
+  by rewrite -(Hfl _pin _sin &m (r',x) _) 1://.
+ rewrite -(HdR _ _ _ &m) 1://.
  rewrite (JI_JR_prE (pred1 r')).
  case: (Pr[JR.main(_pin, _sin) @ &m : res=r'] = 0%r) => C.
   rewrite C /=.
   have ?: Pr[JR.main(_pin, _sin) @ &m : pred1 (r', l') (res, (glob JR))] <= Pr[JR.main(_pin, _sin) @ &m : res = r'].
    by rewrite Pr [mu_sub] /#.
   smt(mu_bounded).
- by rewrite -(Hfl _pin _sin &m (r',l') _) /pred1 //= /#.
+ by rewrite -(Hfl _pin _sin &m (r',l') _) /pred1 1:// /= /#.
 rewrite (HdI (pred1 r) _ _ &m).
-rewrite (HdR (pred1 (r,l)) _ _ &m) //.
-rewrite (HdR (fun xy:_*_=>xy.`2=l) _ _ &m) //.
+rewrite (HdR (pred1 (r,l)) _ _ &m) 1://.
+rewrite (HdR (fun xy:_*_=>xy.`2=l) _ _ &m) 1://.
 rewrite {1}EdR dprod1E.
 rewrite EdR (dprodE predT (pred1 l)) /dleak.
 have ->: weight (dI pin sin') = 1%r.
@@ -716,7 +720,7 @@ split.
  move => [ct_JR CC_J].
  transitivity CC(JI,JR).main
   ( ={pin, sin, glob JR} ==> ={res, glob JR} )
-  ( ={pin, sin, glob JR} ==> ={res, glob JR} ) => //.
+  ( ={pin, sin, glob JR} ==> ={res, glob JR} ); 2..3:smt().
   move=> /> &1 &2 -> ->.
   by exists (glob JR){2} (pin,sin){2} => /#.
  proc.
@@ -730,7 +734,7 @@ move=> CT_J; rewrite -andaE; split.
 move=> ct_J.
 transitivity SimR(JI,JR).main
  (={pin, sin, glob JR} ==> ={res, glob JR})
- (={pin, sin, glob JR} ==> ={res, glob JR}) => //.
+ (={pin, sin, glob JR} ==> ={res, glob JR}); 2..3:smt().
  by move => /> &1 &2 -> ->; exists (glob JR){2} (pin{2},sin{2},witness) => /#.
 proc.
 call (:true).
@@ -767,10 +771,10 @@ lemma JI_det f _pin _sin:
    = Pr[JI.main(_pin, _sin) @ &m : r = f _pin _sin ].
 proof.
 move => Hdet &m r.
-byequiv (: ={pin,sin} /\ pin{2}=_pin /\ sin{2}=_sin ==> _) => //.
+byequiv (: ={pin,sin} /\ pin{2}=_pin /\ sin{2}=_sin ==> _); last 2 done.
 conseq (: ={pin, sin} ==> true)
        (: pin=_pin /\ sin=_sin ==> res = f _pin _sin)
-       _ => //=.
+       _ => /=; 1..3:smt().
 by sim; smt(stateless_JI).
 qed.
 
@@ -784,10 +788,10 @@ lemma JR_det f _pin _sin:
 proof.
 move => Hdet &m rl.
 rewrite eq_sym.
-byequiv (: ={pin,sin,glob JR} /\ pin{2}=_pin /\ sin{2}=_sin ==> _) => //.
+byequiv (: ={pin,sin,glob JR} /\ pin{2}=_pin /\ sin{2}=_sin ==> _); last 2 done.
 conseq (: ={pin, sin, glob JR} ==> ={glob JR})
        (: pin=_pin /\ sin=_sin  ==> res = f _pin _sin)
-       _ => //=.
+       _ => /=; 1..2:smt().
  by conseq proj_JR_JI Hdet => /> /#.
 by sim => /> *; apply stateless_J.
 qed.
@@ -847,11 +851,11 @@ lemma pinll_RSim:
        : ={pin, sin, glob JR} ==> ={res, glob JR} ].
 proof.
 move => /pinll_pr [fll Hll].
-bypr (res,glob JR){1} (res,glob JR){2} => //.
+bypr (res,glob JR){1} (res,glob JR){2}; first done.
 move => /> &1 &2 rl -> -> Eg.
 rewrite RSim_pr Hll.
-case: (fll pin{2}) => //= C.
- by rewrite (JR_pr_m_m' (pred1 rl) &1 &2) //.
+case: (fll pin{2}) => /= C.
+ by rewrite (JR_pr_m_m' (pred1 rl) &1 &2).
 move: (Hll pin{2} sin{2} &2); rewrite C b2r0.
 rewrite (JI_JR_prE predT).
 smt(mu_sub mu_bounded).
@@ -871,7 +875,7 @@ proof.
 move=> pinll CT.
 transitivity RSim(JI, JR).main
  ( ={pin, sin, glob JR} ==> ={res, glob JR} )
- ( ={pin, sin, glob JR} ==> ={res, glob JR} ) => //.
+ ( ={pin, sin, glob JR} ==> ={res, glob JR} ); 2,4:smt().
 + by move=> /> &1 &2 -> ->; exists (glob JR){2} (pin,sin){2}.
 + by symmetry; conseq (pinll_RSim pinll) => /#.
 qed.
@@ -889,8 +893,8 @@ lemma ll_LF:
        : ={pin, sin, glob JR} ==> ={res, glob JR} ].
 proof.
 move=> ll CT.
-apply pinll_LF => //.
-exists (fun _ => true) => //= ?.
+apply pinll_LF; last done.
+exists (fun _ => true) => /= ?.
 by conseq ll.
 qed.
 
@@ -925,16 +929,16 @@ lemma pinll_CT_CC_GenLF:
 proof.
 move => pinll; split.
  move=> [ct CC].
- rewrite -CT_CC_GenLF; split => //.
+ rewrite -CT_CC_GenLF; split; first done.
  transitivity JR.main
    (={pin, sin, glob JR} ==> ={res, glob JR})
-   (={pin, sin, glob JR} ==> ={res, glob JR}) => //.
+   (={pin, sin, glob JR} ==> ={res, glob JR}); 2,4:smt(). 
   by move => /> &1 &2 -> ->; exists (glob JR){2} (pin,sin){2} => /#.
  by apply pinll_RSim.
-rewrite -CT_CC_GenLF; move => [ct SC]; split => //.
+rewrite -CT_CC_GenLF; move => [ct SC]; split; first done.
 transitivity RSim(JI, JR).main
    (={pin, sin, glob JR} ==> ={res, glob JR})
-   (={pin, sin, glob JR} ==> ={res, glob JR}) => //.
+   (={pin, sin, glob JR} ==> ={res, glob JR}); 2,4:smt().
  by move => /> &1 &2 -> ->; exists (glob JR){2} (pin,sin){2} => /#.
 by symmetry; conseq (pinll_RSim pinll) => /#.
 qed.
@@ -959,11 +963,11 @@ lemma pinll_CT_CC_LF:
        : ={pin, sin, glob JR} ==> ={res, glob JR} ].
 proof.
 move => pinll ct CC.
-apply pinll_LF => //.
-rewrite -CT_CC_GenLF; split => //.
+apply pinll_LF; 1:done.
+rewrite -CT_CC_GenLF; split; 1:done.
 transitivity JR.main
    (={pin, sin, glob JR} ==> ={res, glob JR})
-   (={pin, sin, glob JR} ==> ={res, glob JR}) => //.
+   (={pin, sin, glob JR} ==> ={res, glob JR}); 2,4:done.
  by move => /> &1 &2 -> ->; exists (glob JR){2} (pin,sin){2} => /#.
 by apply pinll_RSim.
 qed.
@@ -1089,7 +1093,7 @@ transitivity {1}
    r1 <@ JR1.main(pin10, sin10);
    r <@ F2.RSim'(JI2,JR2).main(pin2,(r1,sin2),(r10,sin2)); }
  ( ={pin, sin, glob JR2, glob JR1} ==> ={r, glob JR2, glob JR1} )
- ( ={pin, sin, glob JR2, glob JR1} ==> ={r, glob JR2, glob JR1} ) => //.
+ ( ={pin, sin, glob JR2, glob JR1} ==> ={r, glob JR2, glob JR1} ); 2:done.
 + by move=> /> &2; exists (glob JR){2} pin{2} sin{2} => //.
 + inline F2.RSim'(JI2, JR2).main.
   swap {2} 2 4.
@@ -1116,7 +1120,7 @@ seq 4 13: (#pre /\ r1{1}=r10{2} /\ (pin2=pin.`2){2} /\ (pin20=pin.`2){2} /\ (sin
    ( ={pin, sin, glob JR2, glob JR1}
      ==> ={pin, sin, glob JR2, glob JR1} /\
         r1{1} = r10{2} /\ pin2{2} = pin{2}.`2 /\ sin2{2} = sin'{2}.`2 /\
-        pin20{2} = pin{2}.`2 /\ sin20{2} = sin{2}.`2) => //.
+        pin20{2} = pin{2}.`2 /\ sin20{2} = sin{2}.`2); 2:done.
   - by move => /> &2; exists (glob JR){2} pin{2} sin{2}.
   - by inline *; sim; auto => />; smt(stateless_JI1).
   transitivity {2}
@@ -1126,11 +1130,10 @@ seq 4 13: (#pre /\ r1{1}=r10{2} /\ (pin2=pin.`2){2} /\ (pin20=pin.`2){2} /\ (sin
    ( ={pin, sin, sin', glob JR2, glob JR1}
      ==> ={pin, sin, glob JR2, glob JR1, r10} /\
         pin2{2} = pin{2}.`2 /\ sin2{2} = sin'{2}.`2 /\
-        pin20{2} = pin{2}.`2 /\ sin20{2} = sin{2}.`2)
- => //.
+        pin20{2} = pin{2}.`2 /\ sin20{2} = sin{2}.`2).
   - by move => /> &2; exists (glob JR){2} pin{2} sin{2} sin'{2}.
-  - move => />.
-  - by call CT1 => //.
+  - by move => />.
+  - by call CT1; auto => />.
   inline*.
   wp; call (: true).
   wp; call (: true).
@@ -1142,9 +1145,9 @@ transitivity {2}
  ( ={pin, sin, sin', glob JR2, glob JR1, r1, r10} /\
    pin2{2} = pin{2}.`2 /\ sin2{2} = sin'{2}.`2 /\
    pin20{2} = pin{2}.`2 /\ sin20{2} = sin{2}.`2
-   ==> ={glob JR2, glob JR1, r} ) => //.
+   ==> ={glob JR2, glob JR1, r} ); 2:done.
 - by move => /> &2; exists (glob JR){2} pin{2} r1{2} r10{2} sin{2} sin'{2}.
-- by call CT2; auto => /> //.
+- by call CT2; auto => />.
 inline*.
 wp; call (: true).
 wp; call (: true).
